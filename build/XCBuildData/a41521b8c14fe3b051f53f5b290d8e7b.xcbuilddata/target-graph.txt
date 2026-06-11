@@ -1,0 +1,2 @@
+Target dependency graph (1 target)
+Target 'Blue Bubble Vault' in project 'Blue Bubble Vault' (no dependencies)

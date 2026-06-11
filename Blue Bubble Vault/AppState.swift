@@ -243,6 +243,34 @@ public final class AppState: ObservableObject {
         }
     }
     
+public func resolveThreadTitle(_ thread: ChatThread) -> String {
+    // If display name is set, use it
+    if !thread.displayName.isEmpty {
+        return thread.displayName
+    }
+    
+    // If chat identifier starts with "chat" (multi-user thread), resolve participant handles
+    if thread.chatIdentifier.starts(with: "chat") && !thread.participantHandles.isEmpty {
+        let handles = thread.participantHandles.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        var resolvedNamesList: [String] = []
+        
+        for handle in handles {
+            // Try to resolve the handle to a contact name
+            if let resolvedName = resolvedNames[handle] {
+                resolvedNamesList.append(resolvedName)
+            } else {
+                // Fallback to the raw handle if no resolution available
+                resolvedNamesList.append(handle)
+            }
+        }
+        
+        return resolvedNamesList.joined(separator: ", ")
+    }
+    
+    // Default fallback to chat identifier
+    return thread.chatIdentifier
+}
+    
     // MARK: - Private Implementations
     
     private func handleSourceChange() {
@@ -376,10 +404,10 @@ public final class AppState: ObservableObject {
     
     private func setupSimulatedData() {
         simulatedThreads = [
-            ChatThread(chatID: 1, guid: "sim-chat-1", chatIdentifier: "+1 (555) 019-2834", displayName: "Alice Smith", messageCount: 4),
-            ChatThread(chatID: 2, guid: "sim-chat-2", chatIdentifier: "bob.jones@icloud.com", displayName: "Bob Jones", messageCount: 3),
-            ChatThread(chatID: 3, guid: "sim-chat-3", chatIdentifier: "chat8394850123", displayName: "Family Group", messageCount: 5),
-            ChatThread(chatID: 4, guid: "sim-chat-4", chatIdentifier: "+1 (800) 424-9090", displayName: "Apple Support", messageCount: 2)
+            ChatThread(chatID: 1, guid: "sim-chat-1", chatIdentifier: "+1 (555) 019-2834", displayName: "Alice Smith", messageCount: 4, participantHandles: "+1 (555) 019-2834"),
+            ChatThread(chatID: 2, guid: "sim-chat-2", chatIdentifier: "bob.jones@icloud.com", displayName: "Bob Jones", messageCount: 3, participantHandles: "bob.jones@icloud.com"),
+            ChatThread(chatID: 3, guid: "sim-chat-3", chatIdentifier: "chat8394850123", displayName: "Family Group", messageCount: 5, participantHandles: "Alice Smith, Bob Jones, Mom, Sister"),
+            ChatThread(chatID: 4, guid: "sim-chat-4", chatIdentifier: "+1 (800) 424-9090", displayName: "Apple Support", messageCount: 2, participantHandles: "+1 (800) 424-9090")
         ]
         
         let now = Date()

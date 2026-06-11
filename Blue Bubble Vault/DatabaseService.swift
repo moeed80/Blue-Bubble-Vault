@@ -15,6 +15,7 @@ public struct ChatThread: Identifiable, Hashable {
     public let chatIdentifier: String
     public let displayName: String
     public let messageCount: Int
+    public let participantHandles: String
     
     public var title: String {
         if !displayName.isEmpty {
@@ -111,7 +112,8 @@ public final class DatabaseService {
             c.guid as chat_guid,
             COALESCE(c.chat_identifier, '') as chat_identifier,
             COALESCE(c.display_name, '') as display_name,
-            COUNT(m.ROWID) as message_count
+            COUNT(m.ROWID) as message_count,
+            (SELECT GROUP_CONCAT(h.id, ', ') FROM chat_handle_join chj JOIN handle h ON chj.handle_id = h.ROWID WHERE chj.chat_id = c.ROWID) as participant_handles
         FROM chat c
         JOIN chat_message_join cmj ON c.ROWID = cmj.chat_id
         JOIN message m ON cmj.message_id = m.ROWID
@@ -136,13 +138,15 @@ public final class DatabaseService {
             let chatIdentifier = getString(from: statement, at: 2)
             let displayName = getString(from: statement, at: 3)
             let messageCount = Int(sqlite3_column_int(statement, 4))
+            let participantHandles = getString(from: statement, at: 5)
             
             threads.append(ChatThread(
                 chatID: chatID,
                 guid: guid,
                 chatIdentifier: chatIdentifier,
                 displayName: displayName,
-                messageCount: messageCount
+                messageCount: messageCount,
+                participantHandles: participantHandles
             ))
         }
         
