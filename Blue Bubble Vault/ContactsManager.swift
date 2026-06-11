@@ -53,13 +53,29 @@ public final class ContactsManager {
     }
     
     private func resolveEmail(email: String) -> String? {
-        let keys = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName)]
+        // Fixed: Properly request the required keys
+        let keys = [
+            CNContactGivenNameKey as CNKeyDescriptor,
+            CNContactFamilyNameKey as CNKeyDescriptor,
+            CNContactEmailAddressesKey as CNKeyDescriptor
+        ] as [CNKeyDescriptor]
+        
         let predicate = CNContact.predicateForContacts(matchingEmailAddress: email)
         
         do {
             let contacts = try contactStore.unifiedContacts(matching: predicate, keysToFetch: keys)
             if let contact = contacts.first {
-                return CNContactFormatter.string(from: contact, style: .fullName)
+                // Properly format the name
+                let firstName = contact.givenName
+                let lastName = contact.familyName
+                
+                if !firstName.isEmpty && !lastName.isEmpty {
+                    return "\(firstName) \(lastName)"
+                } else if !firstName.isEmpty {
+                    return firstName
+                } else if !lastName.isEmpty {
+                    return lastName
+                }
             }
         } catch {
             print("Failed to fetch contact by email: \(error.localizedDescription)")
@@ -68,14 +84,30 @@ public final class ContactsManager {
     }
     
     private func resolvePhone(phone: String) -> String? {
-        let keys = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName)]
+        // Fixed: Properly request the required keys
+        let keys = [
+            CNContactGivenNameKey as CNKeyDescriptor,
+            CNContactFamilyNameKey as CNKeyDescriptor,
+            CNContactPhoneNumbersKey as CNKeyDescriptor
+        ] as [CNKeyDescriptor]
+        
         let cnPhone = CNPhoneNumber(stringValue: phone)
         let predicate = CNContact.predicateForContacts(matching: cnPhone)
         
         do {
             let contacts = try contactStore.unifiedContacts(matching: predicate, keysToFetch: keys)
             if let contact = contacts.first {
-                return CNContactFormatter.string(from: contact, style: .fullName)
+                // Properly format the name
+                let firstName = contact.givenName
+                let lastName = contact.familyName
+                
+                if !firstName.isEmpty && !lastName.isEmpty {
+                    return "\(firstName) \(lastName)"
+                } else if !firstName.isEmpty {
+                    return firstName
+                } else if !lastName.isEmpty {
+                    return lastName
+                }
             }
         } catch {
             // Predicate search could occasionally fail if phone formatting is weird;

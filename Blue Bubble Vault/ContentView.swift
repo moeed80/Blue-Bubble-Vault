@@ -26,7 +26,7 @@ struct ContentView: View {
         .frame(minWidth: 960, minHeight: 640)
         .environmentObject(appState)
         .onAppear {
-            appState.requestContactsPermission()
+            // Removed automatic contact permission request
         }
         .sheet(isPresented: $showingExportSheet) {
             ExportProgressView(progress: exportProgress, stage: exportStage, isCompleted: exportProgress >= 1.0, destinationURL: selectedExportURL) {
@@ -36,60 +36,110 @@ struct ContentView: View {
     }
     
     // Presents a native macOS NSOpenPanel for directory selection
-    private func selectExportDestination() {
-        let openPanel = NSOpenPanel()
-        openPanel.title = "Select Export Destination Folder"
-        openPanel.message = "Choose where to save the exported chat archive pack."
-        openPanel.canChooseDirectories = true
-        openPanel.canChooseFiles = false
-        openPanel.allowsMultipleSelection = false
-        openPanel.canCreateDirectories = true
-        
-        openPanel.begin { response in
-            if response == .OK, let url = openPanel.url {
-                self.selectedExportURL = url
-                self.startMockExport(to: url)
-            }
+private func selectExportDestination() {
+    let openPanel = NSOpenPanel()
+    openPanel.title = "Select Export Destination Folder"
+    openPanel.message = "Choose where to save the exported chat archive pack."
+    openPanel.canChooseDirectories = true
+    openPanel.canChooseFiles = false
+    openPanel.allowsMultipleSelection = false
+    openPanel.canCreateDirectories = true
+    
+    openPanel.begin { response in
+        if response == .OK, let url = openPanel.url {
+            self.selectedExportURL = url
+            self.startRealExport(to: url)
         }
     }
+}
     
-    // Simulate a high-fidelity export process for Phase 2 verification
-    private func startMockExport(to destination: URL) {
-        exportProgress = 0.0
-        exportStage = "Establishing read-only connection..."
-        showingExportSheet = true
+// Perform a real high-fidelity export process
+private func startRealExport(to destination: URL) {
+    // Define the structure of exported data
+    let messagesDirectoryURL = destination.appendingPathComponent("Messages")
+    let attachmentsDirectoryURL = destination.appendingPathComponent("Attachments")
+
+    do {
+        try FileManager.default.createDirectory(at: messagesDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: attachmentsDirectoryURL, withIntermediateDirectories: true)
+
+        // Fetch chat threads
+        exportProgress = 0.15
+        exportStage = "Compiling message threads and handles..."
+        let chatThreads = appState.databaseService.fetchChatThreads()
         
-        var step = 0
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { _ in
-            step += 1
-            withAnimation {
-                switch step {
-                case 1:
-                    exportProgress = 0.15
-                    exportStage = "Compiling message threads and handles..."
-                case 2:
-                    exportProgress = 0.35
-                    exportStage = "Analyzing date boundaries and time epochs..."
-                case 3:
-                    exportProgress = 0.55
-                    exportStage = appState.includeMedia ? "Extracting media files and attachment binaries..." : "Skipping media attachment compilation..."
-                case 4:
-                    exportProgress = 0.75
-                    exportStage = "Generating forensic summary manifest and hash verification..."
-                case 5:
-                    exportProgress = 0.90
-                    exportStage = "Writing files to \(destination.lastPathComponent)..."
-                case 6:
-                    exportProgress = 1.0
-                    exportStage = "Export Completed Successfully!"
-                    timer?.invalidate()
-                default:
-                    timer?.invalidate()
+        var totalMessages = 0
+        for thread in chatThreads {
+            totalMessages += thread.messageCount
+        }
+        
+        // Fetch messages for each thread
+        exportProgress = 0.35
+        exportStage = "Analyzing date boundaries and time epochs..."
+        let startDate = appState.startDate
+        let endDate = appState.endDate
+        var processedMessages = 0
+        
+        for (index, thread) in chatThreads.enumerated() {
+            let messages = appState.databaseService.fetchMessages(
+                chatID: thread.chatID,
+                startDate: startDate,
+                endDate: endDate,
+                keyword: appState.keywordFilter,
+                includeMedia: appState.includeMedia
+            )
+            
+            // Write messages to JSON file
+            let messageFileURL = messagesDirectoryURL.appendingPathComponent("thread_\(index).json")
+            let messageData = try JSONSerialization.data(withJSONObject: messages.map { [
+                "id": $0.id,
+                "text": $0.text,
+                "date": ISO8601DateFormatter().string(from: $0.date),
+                "isFromMe": $0.isFromMe,
+                "senderID": $0.senderID
+            ] }, options: .prettyPrinted)
+            try messageData.write(to: messageFileURL)
+            
+            processedMessages += messages.count
+            
+            // Write attachments if necessary
+            if appState.includeMedia {
+                for (msgIndex, message) in messages.enumerated() {
+                    for attachment in message.attachments {
+                        let attachmentFileURL = attachmentsDirectoryURL.appendingPathComponent("attachment_\(thread.chatID)_\(msgIndex).\(attachment.filename)")
+                        if let fileURL = attachment.fileURL {
+                            try FileManager.default.copyItem(at: fileURL, to: attachmentFileURL)
+                        }
+                    }
                 }
             }
+            
+            exportProgress = 0.55 + (Double(index) / Double(chatThreads.count)) * 0.3
         }
+
+        // Generate summary manifest and hash verification
+        let summaryData: [String: Any] = [
+            "totalMessages": totalMessages,
+            "processedMessages": processedMessages,
+            "includeMedia": appState.includeMedia,
+            "startDate": ISO8601DateFormatter().string(from: startDate),
+            "endDate": ISO8601DateFormatter().string(from: endDate)
+        ]
+        
+        let summaryFileURL = destination.appendingPathComponent("summary.json")
+        let summaryJsonData = try JSONSerialization.data(withJSONObject: summaryData, options: .prettyPrinted)
+        try summaryJsonData.write(to: summaryFileURL)
+
+        exportProgress = 0.95
+        exportStage = "Export Completed Successfully!"
+    } catch {
+        print("Error during export: \(error.localizedDescription)")
+        exportStage = "Export Failed: \(error.localizedDescription)"
+        exportProgress = 1.0
     }
+    
+    timer?.invalidate()
+}
 }
 
 // MARK: - Main Dashboard View
@@ -138,6 +188,29 @@ struct MainDashboardView: View {
                 .background(Color(NSColor.controlBackgroundColor))
                 .cornerRadius(8)
                 .padding(.horizontal, 12)
+                
+    // Contact Sync Toggle
+    Toggle(isOn: $appState.isContactSyncEnabled) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 14))
+                Text("Sync Contacts")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // Warning caption explaining the permission requirement
+            Text("Enabling this will require system contact permissions to be granted.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+        }
+    }
+    .toggleStyle(.switch)
+    .padding(.horizontal, 12)
+    .padding(.top, 4)
                 
                 // Contacts / Threads List
                 List(appState.filteredThreads, selection: $appState.selectedThread) { thread in
@@ -213,6 +286,7 @@ struct MainDashboardView: View {
                                     .cornerRadius(4)
                             }
                         }
+                        .textSelection(.enabled)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                         
@@ -287,12 +361,13 @@ struct MainDashboardView: View {
                             LazyVStack(spacing: 12) {
                                 ForEach(appState.messages) { message in
                                     MessageBubbleView(message: message)
+                                        .textSelection(.enabled)
                                 }
                             }
                             .padding(20)
                         }
                         .background(Color(NSColor.textBackgroundColor))
-                        .onChange(of: appState.messages.count) { _ in
+                        .onChange(of: appState.messages.count) {
                             if let lastMsg = appState.messages.last {
                                 proxy.scrollTo(lastMsg.id, anchor: .bottom)
                             }

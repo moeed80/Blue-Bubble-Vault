@@ -1,0 +1,89 @@
+{
+  "" : {
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue Bubble Vault-primary.dia",
+    "emit-module-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue Bubble Vault-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue Bubble Vault-primary-emit-module.dia",
+    "pch" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue Bubble Vault-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue Bubble Vault-primary.swiftdeps"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/AppState.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/AppState~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/Blue_Bubble_VaultApp.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/Blue_Bubble_VaultApp~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/ContactsManager.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContactsManager~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/ContentView.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/DatabaseConnectionManager.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseConnectionManager~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/DatabaseService.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/DatabaseService~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/FDAPermissionManager.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/FDAPermissionManager~partial.swiftmodule"
+  },
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Debug/Blue Bubble Vault.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

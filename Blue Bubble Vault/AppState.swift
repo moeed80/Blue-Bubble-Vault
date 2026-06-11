@@ -71,20 +71,16 @@ public final class AppState: ObservableObject {
     
     // Contact Resolution Cache
     @Published var resolvedNames: [String: String] = [:]
+    @Published var isContactsSynced: Bool = false
     
-    // Disk & Space Metrics
-    @Published var estimatedExportSize: Int64 = 0
-    @Published var availableSpace: Int64 = 0
-    @Published var isSpaceSafe: Bool = true
+    // Contact Sync Toggle
+    @Published var isContactSyncEnabled: Bool = false
+
+    private var cancellables = Set<AnyCancellable>()
     
-    // Services
-    private let databaseService = DatabaseService()
-    private var simulatedThreads: [ChatThread] = []
-    private var simulatedMessages: [Int64: [MessageItem]] = [:]
-    
-    public init() {
+    init() {
         checkPermissionsAndScanSources()
-        checkContactsPermission()
+        // Removed automatic contact sync to defer until explicit user action
         setupSimulatedData()
         checkAvailableSpace()
         
@@ -92,8 +88,30 @@ public final class AppState: ObservableObject {
         if let firstSource = databaseSources.first {
             selectedSource = firstSource
         }
+        
+        // Add onChange observer for contact sync toggle
+        $isContactSyncEnabled.sink { [weak self] isEnabled in
+            guard let self = self else { return }
+            if isEnabled {
+                // When user enables the toggle, request contacts permission
+                self.requestContactsPermission()
+            } else {
+                // When user disables the toggle, reset the sync state
+                self.isContactsSynced = false
+            }
+        }.store(in: &cancellables)
     }
     
+    // Disk & Space Metrics
+    @Published var estimatedExportSize: Int64 = 0
+    @Published var availableSpace: Int64 = 0
+    @Published var isSpaceSafe: Bool = true
+    
+    // Services
+    public let databaseService = DatabaseService()
+    private var simulatedThreads: [ChatThread] = []
+    private var simulatedMessages: [Int64: [MessageItem]] = [:]
+        
     /// Checks the current FDA permission status, scans for active databases, and updates source lists.
     public func checkPermissionsAndScanSources() {
         let fda = FDAPermissionManager.shared.checkFullDiskAccess()
@@ -136,6 +154,13 @@ public final class AppState: ObservableObject {
         }
     }
     
+    /// Manually triggers contact name resolution after user action.
+    public func requestContactSync() {
+        guard hasContactsPermission else { return }
+        resolveNamesForThreads()
+        isContactsSynced = true
+    }
+    
     /// Refreshes disk size checks
     public func checkAvailableSpace() {
         let fileManager = FileManager.default
@@ -159,7 +184,8 @@ public final class AppState: ObservableObject {
             return chatThreads
         }
         return chatThreads.filter { thread in
-            let resolvedName = resolvedNames[thread.chatIdentifier] ?? ""
+            // Safely handle case where contacts haven't been synced yet
+            let resolvedName = resolvedNames[thread.chatIdentifier] ?? thread.displayName
             return thread.chatIdentifier.localizedCaseInsensitiveContains(searchText) ||
                    thread.displayName.localizedCaseInsensitiveContains(searchText) ||
                    resolvedName.localizedCaseInsensitiveContains(searchText)

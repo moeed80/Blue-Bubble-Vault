@@ -1,0 +1,12 @@
+{
+  "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/Blue Bubble Vault/AppState.swift" : {
+    "abi-baseline-json" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue_Bubble_Vault.abi.json",
+    "const-values" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue Bubble Vault-primary.swiftconstvalues",
+    "dependencies" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue Bubble Vault-primary.d",
+    "diagnostics" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue Bubble Vault-primary.dia",
+    "objc-header" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue_Bubble_Vault-Swift.h",
+    "swiftdoc" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue_Bubble_Vault.swiftdoc",
+    "swiftmodule" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue_Bubble_Vault.swiftmodule",
+    "swiftsourceinfo" : "/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Blue Bubble Vault.build/Release/Blue Bubble Vault.build/Objects-normal/x86_64/Blue_Bubble_Vault.swiftsourceinfo"
+  }
+}

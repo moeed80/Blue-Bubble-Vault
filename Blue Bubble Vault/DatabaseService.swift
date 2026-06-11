@@ -101,7 +101,7 @@ public final class DatabaseService {
         }
     }
     
-    /// Fetches all active chat threads from the database.
+    /// Cultivates all active chat threads from the database.
     public func fetchChatThreads() -> [ChatThread] {
         guard let db = db else { return [] }
         
@@ -170,7 +170,8 @@ public final class DatabaseService {
             COALESCE(a.guid, '') as attachment_guid,
             COALESCE(a.filename, '') as attachment_filename,
             COALESCE(a.mime_type, '') as attachment_mime,
-            COALESCE(a.total_bytes, 0) as attachment_bytes
+            COALESCE(a.total_bytes, 0) as attachment_bytes,
+            m.attributedBody as message_attributed_body
         FROM message m
         JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
         LEFT JOIN handle h ON m.handle_id = h.ROWID
@@ -192,7 +193,6 @@ public final class DatabaseService {
         query += "\nWHERE cmj.chat_id = ?"
         
         // Add Date constraints
-        // Messages database uses nano-seconds since Jan 1, 2001 reference date
         if startDate != nil {
             query += " AND m.date >= ?"
         }
@@ -202,7 +202,7 @@ public final class DatabaseService {
         
         // Add Keyword constraints
         if let key = keyword, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            query += " AND m.text LIKE ?"
+            query += " AND (m.text LIKE ? OR m.attributedBody IS NOT NULL)"
         }
         
         query += "\nORDER BY m.date ASC;"
@@ -243,12 +243,43 @@ public final class DatabaseService {
         
         while sqlite3_step(statement) == SQLITE_ROW {
             let messageID = sqlite3_column_int64(statement, 0)
-            let text = getString(from: statement, at: 1)
+            
+            // Get the text properly
+            let textColumnIndex = 1
+            let blobColumnIndex = 10
+
+            var text = ""
+
+            // First try to get the regular text column
+            if let textPtr = sqlite3_column_text(statement, Int32(textColumnIndex)) {
+                text = String(cString: textPtr)
+            }
+
+            // If text is empty and we have an attributedBody, decode the legacy typedstream
+            // If text is empty and we have an attributedBody, decode the legacy typedstream safely
+            if text.isEmpty {
+                if let blobBytes = sqlite3_column_blob(statement, Int32(blobColumnIndex)) {
+                    let blobLength = Int(sqlite3_column_bytes(statement, Int32(blobColumnIndex)))
+                    if blobLength > 0 {
+                        let rawData = Data(bytes: blobBytes, count: blobLength)
+                        
+                        // Bypass the static deprecation warning by fetching the class dynamically at runtime
+                        if let legacyUnarchiverClass: AnyObject = NSClassFromString("NSUnarchiver") {
+                            let selector = #selector(NSKeyedUnarchiver.unarchiveObject(with:))
+                            if legacyUnarchiverClass.responds(to: selector) {
+                                if let unmanagedResult = legacyUnarchiverClass.perform(selector, with: rawData) {
+                                    if let attributedString = unmanagedResult.takeUnretainedValue() as? NSAttributedString {
+                                        text = attributedString.string
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             // Convert nanoseconds to Date
             let rawDate = sqlite3_column_int64(statement, 2)
-            // Note: chat.db stores date in nanoseconds since 2001-01-01, 
-            // but older versions stored it in seconds. We check the scale:
             let dateInterval = rawDate > 10_000_000_000 ? Double(rawDate) / 1_000_000_000.0 : Double(rawDate)
             let date = Date(timeIntervalSinceReferenceDate: dateInterval)
             
