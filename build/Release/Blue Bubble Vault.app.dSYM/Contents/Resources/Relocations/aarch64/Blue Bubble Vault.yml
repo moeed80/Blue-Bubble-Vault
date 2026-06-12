@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     '/Users/moeedahmad/Scripts/Blue Bubble Vault/Blue Bubble Vault/build/Release/Blue Bubble Vault.app/Contents/MacOS/Blue Bubble Vault'
-relocations:     []
-...
