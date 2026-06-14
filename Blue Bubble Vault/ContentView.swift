@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import AppKit
+import CoreGraphics
 
 struct ContentView: View {
     @StateObject private var appState = AppState()
@@ -39,7 +41,7 @@ struct ContentView: View {
 private func selectExportDestination() {
     let openPanel = NSOpenPanel()
     openPanel.title = "Select Export Destination Folder"
-    openPanel.message = "Choose where to save the exported chat archive pack."
+    openPanel.message = "Choose a folder where the PDF export should be saved."
     openPanel.canChooseDirectories = true
     openPanel.canChooseFiles = false
     openPanel.allowsMultipleSelection = false
@@ -53,92 +55,116 @@ private func selectExportDestination() {
     }
 }
     
-// Perform a real high-fidelity export process
+// Perform a real export process for the currently selected thread as a PDF.
 private func startRealExport(to destination: URL) {
-    // Define the structure of exported data
-    let messagesDirectoryURL = destination.appendingPathComponent("Messages")
-    let attachmentsDirectoryURL = destination.appendingPathComponent("Attachments")
+    guard let thread = appState.selectedThread else {
+        exportStage = "No conversation thread selected."
+        exportProgress = 1.0
+        return
+    }
+
+    let messagesToExport = appState.messages
+    guard !messagesToExport.isEmpty else {
+        exportStage = "No messages are available to export for the selected thread."
+        exportProgress = 1.0
+        return
+    }
 
     do {
-        try FileManager.default.createDirectory(at: messagesDirectoryURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: attachmentsDirectoryURL, withIntermediateDirectories: true)
+        exportProgress = 0.2
+        exportStage = "Generating a PDF for the selected thread..."
 
-        // Fetch chat threads
-        exportProgress = 0.15
-        exportStage = "Compiling message threads and handles..."
-        let chatThreads = appState.databaseService.fetchChatThreads()
-        
-        var totalMessages = 0
-        for thread in chatThreads {
-            totalMessages += thread.messageCount
-        }
-        
-        // Fetch messages for each thread
-        exportProgress = 0.35
-        exportStage = "Analyzing date boundaries and time epochs..."
-        let startDate = appState.startDate
-        let endDate = appState.endDate
-        var processedMessages = 0
-        
-        for (index, thread) in chatThreads.enumerated() {
-            let messages = appState.databaseService.fetchMessages(
-                chatID: thread.chatID,
-                startDate: startDate,
-                endDate: endDate,
-                keyword: appState.keywordFilter,
-                includeMedia: appState.includeMedia
-            )
-            
-            // Write messages to JSON file
-            let messageFileURL = messagesDirectoryURL.appendingPathComponent("thread_\(index).json")
-            let messageData = try JSONSerialization.data(withJSONObject: messages.map { [
-                "id": $0.id,
-                "text": $0.text,
-                "date": ISO8601DateFormatter().string(from: $0.date),
-                "isFromMe": $0.isFromMe,
-                "senderID": $0.senderID
-            ] }, options: .prettyPrinted)
-            try messageData.write(to: messageFileURL)
-            
-            processedMessages += messages.count
-            
-            // Write attachments if necessary
-            if appState.includeMedia {
-                for (msgIndex, message) in messages.enumerated() {
-                    for attachment in message.attachments {
-                        let attachmentFileURL = attachmentsDirectoryURL.appendingPathComponent("attachment_\(thread.chatID)_\(msgIndex).\(attachment.filename)")
-                        if let fileURL = attachment.fileURL {
-                            try FileManager.default.copyItem(at: fileURL, to: attachmentFileURL)
-                        }
-                    }
-                }
-            }
-            
-            exportProgress = 0.55 + (Double(index) / Double(chatThreads.count)) * 0.3
-        }
+        let pdfURL = destination.appendingPathComponent("thread_\(thread.chatID).pdf")
+        try writeThreadPDF(to: pdfURL, thread: thread, messages: messagesToExport)
 
-        // Generate summary manifest and hash verification
-        let summaryData: [String: Any] = [
-            "totalMessages": totalMessages,
-            "processedMessages": processedMessages,
-            "includeMedia": appState.includeMedia,
-            "startDate": ISO8601DateFormatter().string(from: startDate),
-            "endDate": ISO8601DateFormatter().string(from: endDate)
-        ]
-        
-        let summaryFileURL = destination.appendingPathComponent("summary.json")
-        let summaryJsonData = try JSONSerialization.data(withJSONObject: summaryData, options: .prettyPrinted)
-        try summaryJsonData.write(to: summaryFileURL)
-
-        exportProgress = 0.95
-        exportStage = "Export Completed Successfully!"
+        selectedExportURL = pdfURL
+        exportProgress = 1.0
+        exportStage = "PDF export completed successfully."
     } catch {
         print("Error during export: \(error.localizedDescription)")
         exportStage = "Export Failed: \(error.localizedDescription)"
         exportProgress = 1.0
     }
-    
+
     timer?.invalidate()
+}
+
+private func writeThreadPDF(to url: URL, thread: ChatThread, messages: [MessageItem]) throws {
+    var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+    guard let consumer = CGDataConsumer(url: url as CFURL),
+          let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+        throw NSError(domain: "ExportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to create PDF context."])
+    }
+
+    let dateFormatter = DateFormatter()
+    dateFormatter.dateStyle = .medium
+    dateFormatter.timeStyle = .short
+
+    func drawText(_ text: String, in rect: CGRect, fontSize: CGFloat = 12, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: weight),
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle
+        ]
+
+        let attributedString = NSAttributedString(string: text, attributes: attributes)
+        let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        attributedString.draw(in: rect)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    var currentY = 720.0
+
+    func beginNewPage() {
+        context.beginPDFPage(nil)
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(mediaBox)
+        context.setStrokeColor(NSColor.separatorColor.cgColor)
+        context.stroke(CGRect(x: 24, y: 24, width: 564, height: 744))
+        currentY = 720.0
+    }
+
+    beginNewPage()
+    drawText("\(thread.title)", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 20, weight: .bold, color: NSColor.black)
+    drawText("\(thread.chatIdentifier)", in: CGRect(x: 48, y: 706, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
+    drawText("Exported from Blue Bubble Vault • \(dateFormatter.string(from: Date())) • \(messages.count) messages", in: CGRect(x: 48, y: 688, width: 512, height: 14), fontSize: 9, weight: .regular, color: NSColor.secondaryLabelColor)
+
+    for message in messages {
+        let sender = message.isFromMe ? "Me" : (message.senderID.isEmpty ? "Unknown" : message.senderID)
+        let bubbleColor = message.isFromMe ? NSColor.systemBlue.withAlphaComponent(0.14) : NSColor.systemGray.withAlphaComponent(0.12)
+        let textColor: NSColor = message.isFromMe ? NSColor.black : NSColor.black
+        let senderColor: NSColor = message.isFromMe ? NSColor.systemBlue : NSColor.darkGray
+        let bubbleX = message.isFromMe ? 340.0 : 60.0
+        let bubbleWidth = 220.0
+        let bubbleHeight = 70.0
+        let bubbleRect = CGRect(x: bubbleX, y: currentY - 10, width: bubbleWidth, height: bubbleHeight)
+
+        context.setFillColor(bubbleColor.cgColor)
+        context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.2).cgColor)
+        context.addPath(CGPath(roundedRect: bubbleRect, cornerWidth: 12, cornerHeight: 12, transform: nil))
+        context.drawPath(using: .fillStroke)
+
+        let body = "\(dateFormatter.string(from: message.date))\n\(sender): \(message.text)"
+        let messageRect = CGRect(x: bubbleX + 10, y: currentY - 4, width: bubbleWidth - 16, height: bubbleHeight - 12)
+
+        drawText(body, in: messageRect, fontSize: 11, weight: .regular, color: textColor)
+        drawText(sender, in: CGRect(x: bubbleX + 10, y: currentY + 50, width: bubbleWidth - 16, height: 14), fontSize: 9, weight: .bold, color: senderColor)
+        currentY -= 95
+
+        if currentY < 70 {
+            context.endPDFPage()
+            beginNewPage()
+        }
+    }
+
+    if currentY != 720.0 {
+        context.endPDFPage()
+    }
+    context.closePDF()
 }
 }
 
@@ -266,7 +292,7 @@ struct MainDashboardView: View {
                     VStack(spacing: 12) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(appState.resolvedNames[selectedThread.chatIdentifier] ?? selectedThread.title)
+                                Text(appState.resolveThreadTitle(selectedThread))
                                     .font(.title2)
                                     .fontWeight(.bold)
                                 Text(selectedThread.chatIdentifier)

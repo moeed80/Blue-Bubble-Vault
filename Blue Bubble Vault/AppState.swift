@@ -244,30 +244,33 @@ public final class AppState: ObservableObject {
     }
     
 public func resolveThreadTitle(_ thread: ChatThread) -> String {
-    // If display name is set, use it
+    // Prefer any resolved contact name for the thread identifier first.
+    if let resolvedName = resolvedNames[thread.chatIdentifier], !resolvedName.isEmpty {
+        return resolvedName
+    }
+
+    // If display name is set, use it.
     if !thread.displayName.isEmpty {
         return thread.displayName
     }
-    
-    // If chat identifier starts with "chat" (multi-user thread), resolve participant handles
+
+    // If chat identifier starts with "chat" (multi-user thread), resolve participant handles.
     if thread.chatIdentifier.starts(with: "chat") && !thread.participantHandles.isEmpty {
         let handles = thread.participantHandles.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
         var resolvedNamesList: [String] = []
-        
+
         for handle in handles {
-            // Try to resolve the handle to a contact name
-            if let resolvedName = resolvedNames[handle] {
+            if let resolvedName = resolvedNames[handle], !resolvedName.isEmpty {
                 resolvedNamesList.append(resolvedName)
             } else {
-                // Fallback to the raw handle if no resolution available
                 resolvedNamesList.append(handle)
             }
         }
-        
+
         return resolvedNamesList.joined(separator: ", ")
     }
-    
-    // Default fallback to chat identifier
+
+    // Default fallback to chat identifier.
     return thread.chatIdentifier
 }
     
