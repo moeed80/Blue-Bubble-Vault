@@ -37,149 +37,89 @@ struct ContentView: View {
         }
     }
     
-    // Presents a native macOS NSOpenPanel for directory selection
-private func selectExportDestination() {
-    let openPanel = NSOpenPanel()
-    openPanel.title = "Select Export Destination Folder"
-    openPanel.message = "Choose a folder where the PDF export should be saved."
-    openPanel.canChooseDirectories = true
-    openPanel.canChooseFiles = false
-    openPanel.allowsMultipleSelection = false
-    openPanel.canCreateDirectories = true
-    
-    openPanel.begin { response in
-        if response == .OK, let url = openPanel.url {
-            self.selectedExportURL = url
-            self.startRealExport(to: url)
+    // Presents a native macOS save panel so the user can choose a destination folder and filename.
+    private func selectExportDestination() {
+        guard let thread = appState.selectedThread else {
+            exportStage = "No conversation thread selected."
+            exportProgress = 1.0
+            return
         }
-    }
-}
-    
-// Perform a real export process for the currently selected thread as a PDF.
-private func startRealExport(to destination: URL) {
-    guard let thread = appState.selectedThread else {
-        exportStage = "No conversation thread selected."
-        exportProgress = 1.0
-        return
-    }
 
-    let messagesToExport = appState.messages
-    guard !messagesToExport.isEmpty else {
-        exportStage = "No messages are available to export for the selected thread."
-        exportProgress = 1.0
-        return
-    }
+        let panel = NSSavePanel()
+        panel.title = "Export Conversation PDF"
+        panel.message = "Choose a destination folder and filename for the eDiscovery export."
+        panel.canCreateDirectories = true
+        panel.nameFieldLabel = "Export File"
+        panel.nameFieldStringValue = ExportPDFService.shared.defaultFileName(for: thread, messages: appState.messages, appState: appState)
+        panel.prompt = "Export"
+        panel.isExtensionHidden = false
 
-    do {
-        exportProgress = 0.2
-        exportStage = "Generating a PDF for the selected thread..."
-
-        let pdfURL = destination.appendingPathComponent("thread_\(thread.chatID).pdf")
-        try writeThreadPDF(to: pdfURL, thread: thread, messages: messagesToExport)
-
-        selectedExportURL = pdfURL
-        exportProgress = 1.0
-        exportStage = "PDF export completed successfully."
-    } catch {
-        print("Error during export: \(error.localizedDescription)")
-        exportStage = "Export Failed: \(error.localizedDescription)"
-        exportProgress = 1.0
-    }
-
-    timer?.invalidate()
-}
-
-private func writeThreadPDF(to url: URL, thread: ChatThread, messages: [MessageItem]) throws {
-    var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
-    guard let consumer = CGDataConsumer(url: url as CFURL),
-          let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-        throw NSError(domain: "ExportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to create PDF context."])
-    }
-
-    let dateFormatter = DateFormatter()
-    dateFormatter.dateStyle = .medium
-    dateFormatter.timeStyle = .short
-
-    func drawText(_ text: String, in rect: CGRect, fontSize: CGFloat = 12, weight: NSFont.Weight = .regular, color: NSColor = .labelColor) {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: weight),
-            .foregroundColor: color,
-            .paragraphStyle: paragraphStyle
-        ]
-
-        let attributedString = NSAttributedString(string: text, attributes: attributes)
-        let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphicsContext
-        attributedString.draw(in: rect)
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    var currentY = 720.0
-
-    func beginNewPage() {
-        context.beginPDFPage(nil)
-        context.setFillColor(NSColor.white.cgColor)
-        context.fill(mediaBox)
-        context.setStrokeColor(NSColor.separatorColor.cgColor)
-        context.stroke(CGRect(x: 24, y: 24, width: 564, height: 744))
-        currentY = 720.0
-    }
-
-    beginNewPage()
-
-    let metadataTopY: CGFloat = 720.0
-    drawText("Forensic Export Metadata", in: CGRect(x: 48, y: metadataTopY, width: 512, height: 24), fontSize: 18, weight: .bold, color: NSColor.black)
-    drawText("Thread: \(thread.title)", in: CGRect(x: 48, y: metadataTopY - 28, width: 512, height: 18), fontSize: 13, weight: .semibold, color: NSColor.black)
-    drawText("Identifier: \(thread.chatIdentifier)", in: CGRect(x: 48, y: metadataTopY - 48, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
-    drawText("Exported: \(dateFormatter.string(from: Date()))", in: CGRect(x: 48, y: metadataTopY - 68, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
-    drawText("Message Count: \(messages.count)", in: CGRect(x: 48, y: metadataTopY - 88, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
-    drawText("Source: \(appState.selectedSource?.displayName ?? "Unknown")", in: CGRect(x: 48, y: metadataTopY - 108, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
-    drawText("Forensic Note: Sender identity, exact timestamps, and message hashes are included in the export manifest.", in: CGRect(x: 48, y: metadataTopY - 140, width: 512, height: 28), fontSize: 10, weight: .regular, color: NSColor.secondaryLabelColor)
-
-    context.endPDFPage()
-    beginNewPage()
-
-    drawText("Conversation Thread", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 16, weight: .bold, color: NSColor.black)
-    currentY = 650.0
-
-    for message in messages {
-        let sender = message.isFromMe ? "Me" : (message.senderID.isEmpty ? "Unknown" : message.senderID)
-        let bubbleColor = message.isFromMe ? NSColor.systemBlue.withAlphaComponent(0.14) : NSColor.systemGray.withAlphaComponent(0.12)
-        let textColor: NSColor = NSColor.black
-        let senderColor: NSColor = message.isFromMe ? NSColor.systemBlue : NSColor.darkGray
-        let bubbleX = message.isFromMe ? 340.0 : 60.0
-        let bubbleWidth = 220.0
-        let bubbleHeight = 90.0
-        let bubbleRect = CGRect(x: bubbleX, y: currentY - 12, width: bubbleWidth, height: bubbleHeight)
-
-        context.setFillColor(bubbleColor.cgColor)
-        context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.2).cgColor)
-        context.addPath(CGPath(roundedRect: bubbleRect, cornerWidth: 12, cornerHeight: 12, transform: nil))
-        context.drawPath(using: .fillStroke)
-
-        let body = "\(dateFormatter.string(from: message.date))\n\(sender): \(message.text)"
-        let messageRect = CGRect(x: bubbleX + 10, y: currentY + 18, width: bubbleWidth - 16, height: bubbleHeight - 30)
-
-        drawText(body, in: messageRect, fontSize: 11, weight: .regular, color: textColor)
-        drawText(sender, in: CGRect(x: bubbleX + 10, y: currentY + 56, width: bubbleWidth - 16, height: 14), fontSize: 9, weight: .bold, color: senderColor)
-        currentY -= 105
-
-        if currentY < 70 {
-            context.endPDFPage()
-            beginNewPage()
-            drawText("Conversation Thread (continued)", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 16, weight: .bold, color: NSColor.black)
-            currentY = 650.0
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                self.selectedExportURL = url
+                self.startRealExport(to: url)
+            }
         }
     }
 
-    if currentY != 720.0 {
-        context.endPDFPage()
+    // Perform a real export process for the currently selected thread as a PDF.
+    private func startRealExport(to destination: URL) {
+        guard let thread = appState.selectedThread else {
+            exportStage = "No conversation thread selected."
+            exportProgress = 1.0
+            return
+        }
+
+        let messagesToExport = appState.messages
+        guard !messagesToExport.isEmpty else {
+            exportStage = "No messages are available to export for the selected thread."
+            exportProgress = 1.0
+            return
+        }
+
+        showingExportSheet = true
+        exportProgress = 0.05
+        exportStage = "Preparing the forensic export..."
+        selectedExportURL = nil
+
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+            DispatchQueue.main.async {
+                if self.exportProgress < 0.9 {
+                    self.exportProgress = min(self.exportProgress + 0.035, 0.9)
+                }
+            }
+        }
+
+        Task { @MainActor in
+            do {
+                exportProgress = 0.2
+                exportStage = "Rendering the eDiscovery PDF..."
+
+                let exportURL = try await ExportPDFService.shared.exportThreadAsync(
+                    to: destination,
+                    thread: thread,
+                    messages: messagesToExport,
+                    appState: appState
+                )
+
+                selectedExportURL = exportURL
+                exportProgress = 1.0
+                exportStage = "PDF export completed successfully."
+            } catch {
+                print("Error during export: \(error.localizedDescription)")
+                exportStage = "Export Failed: \(error.localizedDescription)"
+                exportProgress = 1.0
+            }
+
+            timer?.invalidate()
+            timer = nil
+        }
     }
-    context.closePDF()
-}
+
+    private func writeThreadPDF(to url: URL, thread: ChatThread, messages: [MessageItem]) async throws {
+        _ = try await ExportPDFService.shared.exportThread(to: url, thread: thread, messages: messages, appState: appState)
+    }
 }
 
 // MARK: - Main Dashboard View
