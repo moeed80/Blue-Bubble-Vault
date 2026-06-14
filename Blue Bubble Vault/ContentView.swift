@@ -129,19 +129,31 @@ private func writeThreadPDF(to url: URL, thread: ChatThread, messages: [MessageI
     }
 
     beginNewPage()
-    drawText("\(thread.title)", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 20, weight: .bold, color: NSColor.black)
-    drawText("\(thread.chatIdentifier)", in: CGRect(x: 48, y: 706, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
-    drawText("Exported from Blue Bubble Vault • \(dateFormatter.string(from: Date())) • \(messages.count) messages", in: CGRect(x: 48, y: 688, width: 512, height: 14), fontSize: 9, weight: .regular, color: NSColor.secondaryLabelColor)
+
+    let metadataTopY: CGFloat = 720.0
+    drawText("Forensic Export Metadata", in: CGRect(x: 48, y: metadataTopY, width: 512, height: 24), fontSize: 18, weight: .bold, color: NSColor.black)
+    drawText("Thread: \(thread.title)", in: CGRect(x: 48, y: metadataTopY - 28, width: 512, height: 18), fontSize: 13, weight: .semibold, color: NSColor.black)
+    drawText("Identifier: \(thread.chatIdentifier)", in: CGRect(x: 48, y: metadataTopY - 48, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
+    drawText("Exported: \(dateFormatter.string(from: Date()))", in: CGRect(x: 48, y: metadataTopY - 68, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
+    drawText("Message Count: \(messages.count)", in: CGRect(x: 48, y: metadataTopY - 88, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
+    drawText("Source: \(appState.selectedSource?.displayName ?? "Unknown")", in: CGRect(x: 48, y: metadataTopY - 108, width: 512, height: 16), fontSize: 11, weight: .regular, color: NSColor.secondaryLabelColor)
+    drawText("Forensic Note: Sender identity, exact timestamps, and message hashes are included in the export manifest.", in: CGRect(x: 48, y: metadataTopY - 140, width: 512, height: 28), fontSize: 10, weight: .regular, color: NSColor.secondaryLabelColor)
+
+    context.endPDFPage()
+    beginNewPage()
+
+    drawText("Conversation Thread", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 16, weight: .bold, color: NSColor.black)
+    currentY = 650.0
 
     for message in messages {
         let sender = message.isFromMe ? "Me" : (message.senderID.isEmpty ? "Unknown" : message.senderID)
         let bubbleColor = message.isFromMe ? NSColor.systemBlue.withAlphaComponent(0.14) : NSColor.systemGray.withAlphaComponent(0.12)
-        let textColor: NSColor = message.isFromMe ? NSColor.black : NSColor.black
+        let textColor: NSColor = NSColor.black
         let senderColor: NSColor = message.isFromMe ? NSColor.systemBlue : NSColor.darkGray
         let bubbleX = message.isFromMe ? 340.0 : 60.0
         let bubbleWidth = 220.0
-        let bubbleHeight = 70.0
-        let bubbleRect = CGRect(x: bubbleX, y: currentY - 10, width: bubbleWidth, height: bubbleHeight)
+        let bubbleHeight = 90.0
+        let bubbleRect = CGRect(x: bubbleX, y: currentY - 12, width: bubbleWidth, height: bubbleHeight)
 
         context.setFillColor(bubbleColor.cgColor)
         context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.2).cgColor)
@@ -149,15 +161,17 @@ private func writeThreadPDF(to url: URL, thread: ChatThread, messages: [MessageI
         context.drawPath(using: .fillStroke)
 
         let body = "\(dateFormatter.string(from: message.date))\n\(sender): \(message.text)"
-        let messageRect = CGRect(x: bubbleX + 10, y: currentY - 4, width: bubbleWidth - 16, height: bubbleHeight - 12)
+        let messageRect = CGRect(x: bubbleX + 10, y: currentY + 18, width: bubbleWidth - 16, height: bubbleHeight - 30)
 
         drawText(body, in: messageRect, fontSize: 11, weight: .regular, color: textColor)
-        drawText(sender, in: CGRect(x: bubbleX + 10, y: currentY + 50, width: bubbleWidth - 16, height: 14), fontSize: 9, weight: .bold, color: senderColor)
-        currentY -= 95
+        drawText(sender, in: CGRect(x: bubbleX + 10, y: currentY + 56, width: bubbleWidth - 16, height: 14), fontSize: 9, weight: .bold, color: senderColor)
+        currentY -= 105
 
         if currentY < 70 {
             context.endPDFPage()
             beginNewPage()
+            drawText("Conversation Thread (continued)", in: CGRect(x: 48, y: 730, width: 512, height: 24), fontSize: 16, weight: .bold, color: NSColor.black)
+            currentY = 650.0
         }
     }
 
