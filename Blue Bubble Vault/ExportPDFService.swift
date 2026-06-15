@@ -3,35 +3,68 @@ import Foundation
 import WebKit
 import CoreGraphics
 
+/// `ExportPDFService` is a singleton service class responsible for exporting a chat thread's message history
+/// into two high-fidelity forensic formats: a diagnostic HTML file and a vector-perfect PDF.
+///
+/// This service utilizes a dual-output architecture designed for professional eDiscovery, legal discovery,
+/// and forensic audit scenarios. It combines synchronous disk logging of raw layout markup with asynchronous,
+/// offscreen WebKit rendering to guarantee that all messages are preserved, readable, and properly paginated.
 final class ExportPDFService {
+    /// Shared singleton instance of the export service.
     static let shared = ExportPDFService()
 
+    /// Strong reference to the active `WKWebView` instance during an on-going PDF generation process.
+    /// This prevents ARC (Automatic Reference Counting) from garbage-collecting the web view mid-render
+    /// while the asynchronous layout engine compiles the document's geometry.
     @MainActor private var activeWebView: WKWebView?
 
+    /// Exports a chat thread's message history to a PDF file at a user-specified destination URL.
+    ///
+    /// This is the primary entry point for exporting. It coordinates sorting message payloads,
+    /// creating the destination directories, writing out the diagnostic HTML gate, and initiating
+    /// the offscreen PDF compilation.
+    ///
+    /// - Parameters:
+    ///   - outputURL: The desired filesystem URL where the compiled PDF should be written.
+    ///   - thread: The chat thread metadata (e.g. Chat ID, Guid, mapped participants).
+    ///   - messages: The array of extracted messages belonging to the conversation thread.
+    ///   - appState: The global application state object (used for title and identity resolution).
+    /// - Returns: The filesystem URL of the successfully generated PDF document.
     @MainActor
     func exportThread(to outputURL: URL,
                       thread: ChatThread,
                       messages: [MessageItem],
                       appState: AppState) async throws -> URL {
+        // Enforce the standard ".pdf" file extension for the output target URL
         let destinationURL = outputURL.pathExtension.lowercased() == "pdf"
             ? outputURL
             : outputURL.appendingPathExtension("pdf")
 
+        // Ensure that the target parent directory exists; create it recursively if missing
         let parentDirectory = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
 
+        // Sort messages chronologically (ascending order) to represent an accurate legal timeline
         let orderedMessages = messages.sorted { $0.date < $1.date }
+        
+        // Assemble the complete document as a raw HTML string from data structures
         let html = buildHTML(for: thread, messages: orderedMessages, appState: appState)
         
-        // 1. Synchronous HTML Diagnostic Dump - KEEP COMPLETELY INTACT
+        // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
+        // To prevent un-trackable rendering losses and simplify layout troubleshooting, we write
+        // the un-rendered HTML directly to disk as 'Forensic_Export_Verification.html'.
+        // If a layout engine bugs out, this static gate serves as our verifiable truth of extraction content.
         let diagnosticURL = parentDirectory.appendingPathComponent("Forensic_Export_Verification.html")
         try html.write(to: diagnosticURL, atomically: true, encoding: .utf8)
 
-        // 2. Asynchronous PDF Rendering
+        // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
+        // Pass the static HTML into our offscreen rendering pipeline which compiles it into print-optimized PDF vectors.
         try await renderHTMLAsync(html, thread: thread, messages: orderedMessages, appState: appState, to: destinationURL)
         return destinationURL
     }
 
+    /// Asynchronous alias of `exportThread`. Coordinates directory preparation, raw HTML serialization,
+    /// diagnostic dump execution, and offscreen WebKit PDF vector compilation.
     @MainActor
     func exportThreadAsync(to outputURL: URL,
                            thread: ChatThread,
@@ -47,15 +80,17 @@ final class ExportPDFService {
         let orderedMessages = messages.sorted { $0.date < $1.date }
         let html = buildHTML(for: thread, messages: orderedMessages, appState: appState)
 
-        // 1. Synchronous HTML Diagnostic Dump - KEEP COMPLETELY INTACT
+        // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
         let diagnosticURL = parentDirectory.appendingPathComponent("Forensic_Export_Verification.html")
         try html.write(to: diagnosticURL, atomically: true, encoding: .utf8)
 
-        // 2. Asynchronous PDF Rendering
+        // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
         try await renderHTMLAsync(html, thread: thread, messages: orderedMessages, appState: appState, to: destinationURL)
         return destinationURL
     }
 
+    /// Automatically generates a legally-structured default filename for exports,
+    /// encoding key forensic identifiers: `Participant_StartYearMonthDay_to_EndYearMonthDay.pdf`.
     func defaultFileName(for thread: ChatThread, messages: [MessageItem], appState: AppState) -> String {
         let participants = participantSummary(for: thread, messages: messages, appState: appState)
         let threadLabel = participants.isEmpty ? appState.resolveThreadTitle(thread) : participants
@@ -72,6 +107,9 @@ final class ExportPDFService {
         return "\(prefix)_\(safeStart)_to_\(safeEnd).pdf"
     }
 
+    /// Assembles raw thread structures and message objects into a monolithic HTML string.
+    /// This includes writing the layout style block, the evidence manifest cover,
+    /// a participant list, and the itemized conversation stream.
     private func buildHTML(for thread: ChatThread,
                            messages: [MessageItem],
                            appState: AppState) -> String {
@@ -79,6 +117,7 @@ final class ExportPDFService {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
+        // Build the Conversation Manifest key-value table rows
         let manifestRows: [String] = [
             ("Case ID", "[CASE-ID]"),
             ("Evidence Custodian", "Moeed Ahmad"),
@@ -93,11 +132,15 @@ final class ExportPDFService {
             "<tr><th>\(escapeHTML(key))</th><td>\(escapeHTML(value))</td></tr>"
         }
 
+        // Build the list items for mapped thread participants
         let participantRows: [String] = participantEntries(for: thread, messages: messages, appState: appState).map { handle, name in
             let resolved = name.isEmpty ? "Unresolved" : name
             return "<li><span class=\"participant-handle\">\(escapeHTML(handle))</span><span class=\"participant-name\">\(escapeHTML(resolved))</span></li>"
         }
 
+        // Map individual message objects into raw, standard table rows that prevent WebKit vertical stretching.
+        // Rather than using Grid or Flexbox (which crash or stretch vertically on pagination breaks inside WebKit),
+        // each message row is constructed as an independent 2-cell HTML table to isolate page breaks.
         let messageRows: [String] = messages.map { message in
             let direction = message.isFromMe ? "Sent" : "Received"
             let bubbleClass = message.isFromMe ? "outgoing" : "incoming"
@@ -127,16 +170,19 @@ final class ExportPDFService {
         let sourceLabel = escapeHTML(appState.selectedSource?.displayName ?? "Unknown")
         let legalNotice = escapeHTML("This export was generated directly from the local forensic archive layers and is intended for evidentiary review, chain-of-custody documentation, and legal discovery workflows.")
 
+        // Output the final monolithic HTML template
         return """
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
           <style>
+            /* Define print properties for standard Letter size with standard half-inch margins */
             @page {
               size: Letter;
               margin: 0.5in;
             }
+            /* Reset body properties and strip Flex/Grid wrappers to avoid infinite canvas expansion */
             html, body {
               display: block !important;
               width: 100% !important;
@@ -151,6 +197,7 @@ final class ExportPDFService {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
+            /* Ensure the cover manifest cover doesn't flex-stretch and breaks cleanly to Page 2 */
             .cover {
               display: block !important;
               height: auto !important;
@@ -241,6 +288,8 @@ final class ExportPDFService {
               margin: 0 0 16px 0;
               color: #000000 !important;
             }
+            /* Table-based Row Layout: Disables Flexbox and utilizes print-safe display blocks.
+               This enforces page-break boundaries, pushing rows onto new pages seamlessly. */
             .message-row {
               width: 100% !important;
               border-collapse: collapse !important;
@@ -248,6 +297,7 @@ final class ExportPDFService {
               page-break-inside: avoid !important; /* Forces legacy WebKit to push row to next page */
               break-inside: avoid !important;      /* Enforces page-break avoidance in modern AppKit layout engines */
             }
+            /* Table Cells: Forces structural block side-by-side columns to render independently. */
             .bubble-column {
               display: table-cell !important;
               vertical-align: top !important;
@@ -330,13 +380,16 @@ final class ExportPDFService {
         """
     }
 
+    /// Prepares an offscreen window context, instantiates a non-zero layout canvas inside a `WKWebView`,
+    /// loads the generated HTML, and blocks execution asynchronously until the PDF compilation finishes.
     @MainActor
     private func renderHTMLAsync(_ html: String,
                                  thread: ChatThread,
                                  messages: [MessageItem],
                                  appState: AppState,
                                  to outputURL: URL) async throws {
-        // Create a borderless offscreen window with explicit frame size to host the web view hierarchy
+        // Create an offscreen window framework. This is critical because Cocoa's WebKit rendering engine
+        // will not compute canvas layouts or process rendering calls if its host view has no window association.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 816, height: 1056),
             styleMask: [.borderless],
@@ -344,17 +397,21 @@ final class ExportPDFService {
             defer: false
         )
 
-        // Give WKWebView an explicit physical frame size so it doesn't default to zero dimensions
+        // Initialize WebKit view with explicit non-zero Letter dimensions (816x1056)
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 816, height: 1056))
         window.contentView?.addSubview(webView)
 
-        // Ensure the service class orchestrating the export holds a strong property reference to the WKWebView instance
+        // Secure a strong reference to the web view inside the class singleton instance.
+        // This ensures ARC does not clean it up mid-render while awaiting asynchronous delegate callbacks.
         self.activeWebView = webView
 
+        // Clean up the class property reference when this method returns (success or failure)
         defer {
             self.activeWebView = nil
         }
 
+        // Bridge Swift's modern async-await concurrency with Cocoa's delegate-based callback pattern.
+        // We halt execution using withCheckedThrowingContinuation until the navigation delegate completes or fails.
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let delegate = PDFNavigationDelegate(outputURL: outputURL) { result in
                 switch result {
@@ -364,20 +421,24 @@ final class ExportPDFService {
                     continuation.resume(throwing: error)
                 }
             }
+            
+            // Assign the strongly retained delegate and begin loading the generated HTML payload
             webView.navigationDelegate = delegate
             webView.loadHTMLString(html, baseURL: nil)
 
-            // Dynamic layout timeout protection
+            // Dynamic layout timeout protection: triggers an error if loading exceeds 15 seconds
             DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
                 delegate.complete(with: .failure(ExportPDFError.renderFailed("Timed out while preparing the export preview.")))
             }
         }
 
-        // Keep local references strongly referenced during print execution scope to prevent early garbage collection
+        // Explicitly maintain scope reference lifetime for the window and view
         _ = window
         _ = webView
     }
 
+    /// Utility helper to resolve the sender display name for a specific message,
+    /// cross-referencing contact state maps.
     private func resolveDisplayName(for message: MessageItem,
                                     thread: ChatThread,
                                     appState: AppState) -> String {
@@ -400,6 +461,7 @@ final class ExportPDFService {
         return thread.chatIdentifier.isEmpty ? "Unknown Participant" : thread.chatIdentifier
     }
 
+    /// Resolves and aggregates unique participant identities mapped across thread logs.
     private func participantEntries(for thread: ChatThread,
                                     messages: [MessageItem],
                                     appState: AppState) -> [(handle: String, name: String)] {
@@ -432,6 +494,7 @@ final class ExportPDFService {
         return entries
     }
 
+    /// Generates a brief participant sequence to summarize the thread structure.
     private func participantSummary(for thread: ChatThread,
                                     messages: [MessageItem],
                                     appState: AppState) -> String {
@@ -443,12 +506,14 @@ final class ExportPDFService {
         return names.prefix(4).joined(separator: "_")
     }
 
+    /// Sanitizes files paths to eliminate illegal filesystem characters.
     private func sanitizeFileNameComponent(_ text: String) -> String {
         let invalidCharacters = CharacterSet(charactersIn: ":/\\?%*|\"<>\n\r\t")
         let filtered = text.unicodeScalars.filter { !invalidCharacters.contains($0) }
         return String(filtered).replacingOccurrences(of: " ", with: "_").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Safely escapes specialized HTML entity tags, avoiding raw tag parsing errors inside WebKit.
     private func escapeHTML(_ text: String) -> String {
         var escaped = text.replacingOccurrences(of: "&", with: "&" + "amp;")
         escaped = escaped.replacingOccurrences(of: "<", with: "&" + "lt;")
@@ -458,6 +523,7 @@ final class ExportPDFService {
         return escaped
     }
 
+    /// Resolves the hostname profile of the target hardware logging the export.
     private func hostName() -> String {
         let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         return host.isEmpty ? "Local macOS Host" : host
@@ -465,6 +531,8 @@ final class ExportPDFService {
 }
 
 // MARK: - Navigation Delegate
+/// `PDFNavigationDelegate` acts as the coordinator between the WebKit frame lifecycle and PDF compilation.
+/// It retains its own memory context strongly during active compilation, automatically cleaning up upon completion.
 private final class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
     private var completion: ((Result<Void, Error>) -> Void)?
     private var didFinish = false
@@ -478,24 +546,28 @@ private final class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
         self.strongSelf = self
     }
 
+    /// Resolves the completion block, releasing self-retained references to permit standard deallocation.
     func complete(with result: Result<Void, Error>) {
         guard !didFinish else { return }
         didFinish = true
         completion?(result)
         completion = nil
-        strongSelf = nil // Break the retain cycle
+        strongSelf = nil // Break the self-retaining cycle to allow deallocation
     }
 
+    /// Standard navigation completed callback. Checks document readiness status,
+    /// then initiates the vector createPDF WebKit rendering operation.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.evaluateJavaScript("document.readyState") { [weak self] (result, error) in
             guard let self = self else { return }
             
-            // Implement Modern WebKit PDF Compilation API
+            // Invoke the modern WebKit vector PDF compilation API
             let configuration = WKPDFConfiguration()
             webView.createPDF(configuration: configuration) { pdfResult in
                 switch pdfResult {
                 case .success(let data):
                     do {
+                        // Persist the rendered vector PDF binary directly to disk
                         try data.write(to: self.outputURL)
                         self.complete(with: .success(()))
                     } catch {
@@ -517,6 +589,7 @@ private final class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 }
 
+/// Custom localized error descriptions for standard rendering failures.
 enum ExportPDFError: LocalizedError {
     case renderFailed(String)
 
