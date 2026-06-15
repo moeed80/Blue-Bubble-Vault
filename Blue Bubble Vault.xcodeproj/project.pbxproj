@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		2EA7B65C2FD2FFBE00E4458A /* Blue Bubble Vault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Blue Bubble Vault.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BV1000010000000000000001 /* Blue Bubble VaultTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Blue Bubble VaultTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +17,22 @@
 			path = "Blue Bubble Vault";
 			sourceTree = "<group>";
 		};
+		BV1000010000000000000002 /* Blue Bubble VaultTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Blue Bubble VaultTests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		2EA7B6592FD2FFBE00E4458A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BV1000010000000000000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				2EA7B65E2FD2FFBE00E4458A /* Blue Bubble Vault */,
+				BV1000010000000000000002 /* Blue Bubble VaultTests */,
 				2EA7B65D2FD2FFBE00E4458A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,11 +55,22 @@
 			isa = PBXGroup;
 			children = (
 				2EA7B65C2FD2FFBE00E4458A /* Blue Bubble Vault.app */,
+				BV1000010000000000000001 /* Blue Bubble VaultTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		BV1000010000000000000004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2EA7B6542FD2FFBE00E4458A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2EA7B65B2FD2FFBE00E4458A;
+			remoteInfo = "Blue Bubble Vault";
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		2EA7B65B2FD2FFBE00E4458A /* Blue Bubble Vault */ = {
@@ -69,6 +94,29 @@
 			productName = "Blue Bubble Vault";
 			productReference = 2EA7B65C2FD2FFBE00E4458A /* Blue Bubble Vault.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BV1000010000000000000005 /* Blue Bubble VaultTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BV1000010000000000000006 /* Build configuration list for PBXNativeTarget "Blue Bubble VaultTests" */;
+			buildPhases = (
+				BV1000010000000000000007 /* Sources */,
+				BV1000010000000000000003 /* Frameworks */,
+				BV1000010000000000000008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BV1000010000000000000009 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BV1000010000000000000002 /* Blue Bubble VaultTests */,
+			);
+			name = "Blue Bubble VaultTests";
+			packageProductDependencies = (
+			);
+			productName = "Blue Bubble VaultTests";
+			productReference = BV1000010000000000000001 /* Blue Bubble VaultTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -100,12 +148,20 @@
 			projectRoot = "";
 			targets = (
 				2EA7B65B2FD2FFBE00E4458A /* Blue Bubble Vault */,
+				BV1000010000000000000005 /* Blue Bubble VaultTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		2EA7B65A2FD2FFBE00E4458A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BV1000010000000000000008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +178,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BV1000010000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BV1000010000000000000009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2EA7B65B2FD2FFBE00E4458A /* Blue Bubble Vault */;
+			targetProxy = BV1000010000000000000004 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2EA7B6652FD2FFBF00E4458A /* Debug */ = {
@@ -303,6 +374,44 @@
 			};
 			name = Release;
 		};
+		BV1000010000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.moeed.Blue-Bubble-VaultTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Blue Bubble Vault.app/Contents/MacOS/Blue Bubble Vault";
+				TEST_TARGET_NAME = "Blue Bubble Vault";
+			};
+			name = Debug;
+		};
+		BV1000010000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.moeed.Blue-Bubble-VaultTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Blue Bubble Vault.app/Contents/MacOS/Blue Bubble Vault";
+				TEST_TARGET_NAME = "Blue Bubble Vault";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -320,6 +429,15 @@
 			buildConfigurations = (
 				2EA7B6682FD2FFBF00E4458A /* Debug */,
 				2EA7B6692FD2FFBF00E4458A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BV1000010000000000000006 /* Build configuration list for PBXNativeTarget "Blue Bubble VaultTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BV1000010000000000000010 /* Debug */,
+				BV1000010000000000000011 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -112,8 +112,18 @@ public final class AppState: ObservableObject {
     private var simulatedThreads: [ChatThread] = []
     private var simulatedMessages: [Int64: [MessageItem]] = [:]
         
+    private var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     /// Checks the current FDA permission status, scans for active databases, and updates source lists.
     public func checkPermissionsAndScanSources() {
+        if isRunningUnderXCTest {
+            self.hasFDA = false
+            self.databaseSources = [DatabaseSource(type: .icloud, path: "simulated_demo")]
+            return
+        }
+
         let fda = FDAPermissionManager.shared.checkFullDiskAccess()
         self.hasFDA = fda
         
@@ -273,6 +283,14 @@ public func resolveThreadTitle(_ thread: ChatThread) -> String {
     // Default fallback to chat identifier.
     return thread.chatIdentifier
 }
+
+func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
+    ExportRenderContext(
+        threadTitle: resolveThreadTitle(thread),
+        sourceDisplayName: selectedSource?.displayName ?? "Unknown",
+        resolvedNames: resolvedNames
+    )
+}
     
     // MARK: - Private Implementations
     
@@ -407,45 +425,158 @@ public func resolveThreadTitle(_ thread: ChatThread) -> String {
     
     private func setupSimulatedData() {
         simulatedThreads = [
-            ChatThread(chatID: 1, guid: "sim-chat-1", chatIdentifier: "+1 (555) 019-2834", displayName: "Alice Smith", messageCount: 4, participantHandles: "+1 (555) 019-2834"),
-            ChatThread(chatID: 2, guid: "sim-chat-2", chatIdentifier: "bob.jones@icloud.com", displayName: "Bob Jones", messageCount: 3, participantHandles: "bob.jones@icloud.com"),
-            ChatThread(chatID: 3, guid: "sim-chat-3", chatIdentifier: "chat8394850123", displayName: "Family Group", messageCount: 5, participantHandles: "Alice Smith, Bob Jones, Mom, Sister"),
-            ChatThread(chatID: 4, guid: "sim-chat-4", chatIdentifier: "+1 (800) 424-9090", displayName: "Apple Support", messageCount: 2, participantHandles: "+1 (800) 424-9090")
+            ChatThread(chatID: 1, guid: "sim-chat-1", chatIdentifier: "+1 (555) 019-2834", displayName: "Alice Smith", messageCount: 18, participantHandles: "+1 (555) 019-2834"),
+            ChatThread(chatID: 2, guid: "sim-chat-2", chatIdentifier: "bob.jones@icloud.com", displayName: "Bob Jones", messageCount: 17, participantHandles: "bob.jones@icloud.com"),
+            ChatThread(chatID: 3, guid: "sim-chat-3", chatIdentifier: "chat8394850123", displayName: "Family Group", messageCount: 22, participantHandles: "Alice Smith, Bob Jones, Mom, Sister"),
+            ChatThread(chatID: 4, guid: "sim-chat-4", chatIdentifier: "+1 (800) 424-9090", displayName: "Apple Support", messageCount: 16, participantHandles: "+1 (800) 424-9090")
         ]
         
         let now = Date()
         let oneDay: TimeInterval = 24 * 60 * 60
         
-        simulatedMessages[1] = [
-            MessageItem(messageID: 101, text: "Hey! Are we still on for lunch today?", date: now.addingTimeInterval(-oneDay * 5), isFromMe: false, senderID: "+1 (555) 019-2834", attachments: []),
-            MessageItem(messageID: 102, text: "Yes, definitely! Same Italian place as usual?", date: now.addingTimeInterval(-oneDay * 5 + 300), isFromMe: true, senderID: "me", attachments: []),
-            MessageItem(messageID: 103, text: "Yep! I took a photo of the new menu changes. Check this out.", date: now.addingTimeInterval(-oneDay * 5 + 600), isFromMe: false, senderID: "+1 (555) 019-2834", attachments: [
-                AttachmentItem(attachmentID: 501, guid: "att-1", filename: "~/Downloads/menu.jpg", mimeType: "image/jpeg", totalBytes: 1024 * 1024 * 2)
-            ]),
-            MessageItem(messageID: 104, text: "Looks delicious! See you at 12:30.", date: now.addingTimeInterval(-oneDay * 5 + 900), isFromMe: true, senderID: "me", attachments: [])
-        ]
+        simulatedMessages[1] = makeSimulatedThread(
+            baseID: 100,
+            senderID: "+1 (555) 019-2834",
+            startDate: now.addingTimeInterval(-oneDay * 5),
+            minutesBetweenMessages: 7,
+            lines: [
+                (false, "Hey! Are we still on for lunch today?", nil),
+                (true, "Yes, definitely. Same Italian place as usual?", nil),
+                (false, "Yep. They changed the lunch menu a little, but the patio is still open.", nil),
+                (true, "Perfect. I have a hard stop at 1:30, so noon would be ideal.", nil),
+                (false, "Noon works. I saved us a table outside.", nil),
+                (false, "I grabbed a photo of the specials board so you can choose before we get there.", demoAttachment(id: 501, fileName: "menu-specials.jpg", mimeType: "image/jpeg", megabytes: 2)),
+                (true, "The ravioli looks good. Also, I need to talk through the archive export flow.", nil),
+                (false, "Bring the notes. I can sanity-check whether the legal metadata reads clearly.", nil),
+                (true, "Great. The tricky part is making the PDF useful without making it feel too technical.", nil),
+                (false, "Maybe start with a clean cover page, then messages in order. People can always use the raw data files later.", nil),
+                (true, "Exactly. I want the visual export to be readable first.", nil),
+                (false, "Readable and predictable. No weird page cuts through messages.", nil),
+                (true, "That one is on my bug list now.", nil),
+                (false, "Good. I will bring examples from a few long threads.", nil),
+                (true, "Thanks. I will bring the latest build so we can export from demo mode safely.", nil),
+                (false, "Love that. No real data while testing.", nil),
+                (true, "See you at noon.", nil),
+                (false, "See you soon.", nil)
+            ]
+        )
         
-        simulatedMessages[2] = [
-            MessageItem(messageID: 201, text: "Can you send me the PDF contract for the project?", date: now.addingTimeInterval(-oneDay * 2), isFromMe: false, senderID: "bob.jones@icloud.com", attachments: []),
-            MessageItem(messageID: 202, text: "Here is the signed contract copy.", date: now.addingTimeInterval(-oneDay * 2 + 1200), isFromMe: true, senderID: "me", attachments: [
-                AttachmentItem(attachmentID: 502, guid: "att-2", filename: "~/Documents/Contract_Final.pdf", mimeType: "application/pdf", totalBytes: 1024 * 1024 * 14)
-            ]),
-            MessageItem(messageID: 203, text: "Thanks, received it. I will process the payment today.", date: now.addingTimeInterval(-oneDay * 2 + 3600), isFromMe: false, senderID: "bob.jones@icloud.com", attachments: [])
-        ]
+        simulatedMessages[2] = makeSimulatedThread(
+            baseID: 200,
+            senderID: "bob.jones@icloud.com",
+            startDate: now.addingTimeInterval(-oneDay * 2),
+            minutesBetweenMessages: 13,
+            lines: [
+                (false, "Can you send me the PDF contract for the project?", nil),
+                (true, "Yes. I am reviewing the final clause list now.", nil),
+                (false, "No rush, but I need to attach it to the vendor packet by end of day.", nil),
+                (true, "Understood. The main change is the storage retention language.", nil),
+                (false, "That is the section legal flagged yesterday.", nil),
+                (true, "Here is the signed contract copy for the synthetic demo thread.", demoAttachment(id: 502, fileName: "contract-final.pdf", mimeType: "application/pdf", megabytes: 14)),
+                (false, "Received. I will process the payment today.", nil),
+                (true, "Great. Please confirm once accounting has the invoice reference.", nil),
+                (false, "They just asked whether the export manifest is included.", nil),
+                (true, "For MVP we have a cover manifest in the PDF. The deterministic sidecar manifest is next.", nil),
+                (false, "Makes sense. The cover page is enough for the walkthrough.", nil),
+                (true, "I also want CSV and JSON to use the same message ordering.", nil),
+                (false, "That will help reviewers compare outputs.", nil),
+                (true, "Exactly. Same records, different presentation.", nil),
+                (false, "I will note that in the acceptance criteria.", nil),
+                (true, "Thanks. Send over any wording changes before the review.", nil),
+                (false, "Will do.", nil)
+            ]
+        )
         
-        simulatedMessages[3] = [
-            MessageItem(messageID: 301, text: "Mom: What are we doing for Father's day next week?", date: now.addingTimeInterval(-oneDay * 12), isFromMe: false, senderID: "Mom", attachments: []),
-            MessageItem(messageID: 302, text: "Sis: Let's do a backyard BBQ. I can bring potato salad.", date: now.addingTimeInterval(-oneDay * 12 + 600), isFromMe: false, senderID: "Sister", attachments: []),
-            MessageItem(messageID: 303, text: "Sounds great, I'll grill the steaks. Check out this grill I bought yesterday!", date: now.addingTimeInterval(-oneDay * 12 + 900), isFromMe: true, senderID: "me", attachments: [
-                AttachmentItem(attachmentID: 503, guid: "att-3", filename: "~/Pictures/NewGrill.png", mimeType: "image/png", totalBytes: 1024 * 1024 * 6)
-            ]),
-            MessageItem(messageID: 304, text: "Mom: Oh wow, that looks huge! We'll need a lot of charcoal.", date: now.addingTimeInterval(-oneDay * 12 + 1800), isFromMe: false, senderID: "Mom", attachments: []),
-            MessageItem(messageID: 305, text: "I'll pick up the charcoal on Friday.", date: now.addingTimeInterval(-oneDay * 11), isFromMe: true, senderID: "me", attachments: [])
-        ]
+        simulatedMessages[3] = makeSimulatedThread(
+            baseID: 300,
+            senderID: "Mom",
+            startDate: now.addingTimeInterval(-oneDay * 12),
+            minutesBetweenMessages: 9,
+            lines: [
+                (false, "Mom: What are we doing for Father's day next week?", nil),
+                (false, "Sister: Let's do a backyard BBQ. I can bring potato salad.", nil),
+                (true, "Sounds great. I can grill the steaks and bring drinks.", nil),
+                (false, "Bob Jones: I can pick up charcoal and ice.", nil),
+                (false, "Mom: Please make sure there are vegetarian sides too.", nil),
+                (true, "Absolutely. Corn, salad, grilled peppers, and veggie skewers.", nil),
+                (false, "Sister: I made a shared shopping list for everyone.", nil),
+                (true, "Check out this synthetic grill photo from the demo fixture.", demoAttachment(id: 503, fileName: "demo-grill.png", mimeType: "image/png", megabytes: 6)),
+                (false, "Mom: Oh wow, that looks huge. We will need a lot of charcoal.", nil),
+                (true, "I will pick up the charcoal on Friday.", nil),
+                (false, "Bob Jones: I can bring folding chairs.", nil),
+                (false, "Sister: Do we need dessert?", nil),
+                (true, "Yes, but something easy. Maybe berries and ice cream.", nil),
+                (false, "Mom: Your father would like that.", nil),
+                (true, "I will also print the old family photos for the table.", nil),
+                (false, "Sister: Nice. Please label the dates if you can.", nil),
+                (true, "Good idea. I can make a small archive packet.", nil),
+                (false, "Bob Jones: This has become very official.", nil),
+                (true, "Only mildly official. Still mostly about food.", nil),
+                (false, "Mom: I am adding lemonade to the list.", nil),
+                (true, "Perfect. I will send a final plan Friday morning.", nil),
+                (false, "Sister: Works for me.", nil)
+            ]
+        )
         
-        simulatedMessages[4] = [
-            MessageItem(messageID: 401, text: "Your support request has been registered. A representative will be with you shortly.", date: now.addingTimeInterval(-oneDay * 20), isFromMe: false, senderID: "Apple Support", attachments: []),
-            MessageItem(messageID: 402, text: "How can I help you today?", date: now.addingTimeInterval(-oneDay * 20 + 60), isFromMe: false, senderID: "Apple Support", attachments: [])
-        ]
+        simulatedMessages[4] = makeSimulatedThread(
+            baseID: 400,
+            senderID: "Apple Support",
+            startDate: now.addingTimeInterval(-oneDay * 20),
+            minutesBetweenMessages: 5,
+            lines: [
+                (false, "Your support request has been registered. A representative will be with you shortly.", nil),
+                (false, "How can I help you today?", nil),
+                (true, "I am testing a local export workflow and want to confirm permissions language.", nil),
+                (false, "I can help with general guidance about local macOS permissions.", nil),
+                (true, "The app should explain Full Disk Access without reading any real data during demo testing.", nil),
+                (false, "That sounds like a good separation. Demo data should remain synthetic.", nil),
+                (true, "Exactly. The app has a simulated source for this.", nil),
+                (false, "Then the onboarding copy should make the distinction clear.", nil),
+                (true, "Agreed. The demo lets people try export behavior before granting anything.", nil),
+                (false, "That is helpful for privacy-sensitive review.", nil),
+                (true, "I also want the generated PDF to page cleanly on A4.", nil),
+                (false, "Clean page boundaries are important for printing and filing.", nil),
+                (true, "The exporter now lays out page containers before rendering.", nil),
+                (false, "Great. Please run a build after changing the export renderer.", nil),
+                (true, "Already on the checklist.", nil),
+                (false, "Thanks for contacting support.", nil)
+            ]
+        )
+    }
+
+    private func makeSimulatedThread(
+        baseID: Int64,
+        senderID: String,
+        startDate: Date,
+        minutesBetweenMessages: Int,
+        lines: [(isFromMe: Bool, text: String, attachment: AttachmentItem?)]
+    ) -> [MessageItem] {
+        lines.enumerated().map { index, line in
+            MessageItem(
+                messageID: baseID + Int64(index + 1),
+                text: line.text,
+                date: startDate.addingTimeInterval(TimeInterval(index * minutesBetweenMessages * 60)),
+                isFromMe: line.isFromMe,
+                senderID: line.isFromMe ? "me" : senderIDForDemoLine(line.text, fallback: senderID),
+                attachments: line.attachment.map { [$0] } ?? []
+            )
+        }
+    }
+
+    private func senderIDForDemoLine(_ text: String, fallback: String) -> String {
+        if text.hasPrefix("Mom:") { return "Mom" }
+        if text.hasPrefix("Sister:") { return "Sister" }
+        if text.hasPrefix("Bob Jones:") { return "Bob Jones" }
+        return fallback
+    }
+
+    private func demoAttachment(id: Int64, fileName: String, mimeType: String, megabytes: Int64) -> AttachmentItem {
+        AttachmentItem(
+            attachmentID: id,
+            guid: "demo-att-\(id)",
+            filename: "/SyntheticFixtures/\(fileName)",
+            mimeType: mimeType,
+            totalBytes: megabytes * 1024 * 1024
+        )
     }
 }

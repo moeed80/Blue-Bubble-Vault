@@ -3,6 +3,31 @@ import Foundation
 import WebKit
 import CoreGraphics
 
+struct ExportRenderContext {
+    let threadTitle: String
+    let sourceDisplayName: String
+    let resolvedNames: [String: String]
+    let evidenceCustodian: String
+    let hostName: String
+
+    init(threadTitle: String,
+         sourceDisplayName: String,
+         resolvedNames: [String: String],
+         evidenceCustodian: String = "[unassigned]",
+         hostName: String = ExportRenderContext.defaultHostName()) {
+        self.threadTitle = threadTitle
+        self.sourceDisplayName = sourceDisplayName
+        self.resolvedNames = resolvedNames
+        self.evidenceCustodian = evidenceCustodian
+        self.hostName = hostName
+    }
+
+    private static func defaultHostName() -> String {
+        let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        return host.isEmpty ? "Local macOS Host" : host
+    }
+}
+
 /// `ExportPDFService` is a singleton service class responsible for exporting a chat thread's message history
 /// into two high-fidelity forensic formats: a diagnostic HTML file and a vector-perfect PDF.
 ///
@@ -12,6 +37,9 @@ import CoreGraphics
 final class ExportPDFService {
     /// Shared singleton instance of the export service.
     static let shared = ExportPDFService()
+
+    /// A4 page size in PDF points at 72 points per inch: 8.27 x 11.69 inches.
+    private static let a4PageRect = CGRect(x: 0, y: 0, width: 595, height: 842)
 
     /// Strong reference to the active `WKWebView` instance during an on-going PDF generation process.
     /// This prevents ARC (Automatic Reference Counting) from garbage-collecting the web view mid-render
@@ -46,9 +74,10 @@ final class ExportPDFService {
 
         // Sort messages chronologically (ascending order) to represent an accurate legal timeline
         let orderedMessages = messages.sorted { $0.date < $1.date }
+        let context = appState.exportRenderContext(for: thread)
         
         // Assemble the complete document as a raw HTML string from data structures
-        let html = buildHTML(for: thread, messages: orderedMessages, appState: appState)
+        let html = buildHTML(for: thread, messages: orderedMessages, context: context)
         
         // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
         // To prevent un-trackable rendering losses and simplify layout troubleshooting, we write
@@ -59,7 +88,7 @@ final class ExportPDFService {
 
         // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
         // Pass the static HTML into our offscreen rendering pipeline which compiles it into print-optimized PDF vectors.
-        try await renderHTMLAsync(html, thread: thread, messages: orderedMessages, appState: appState, to: destinationURL)
+        try await renderHTMLAsync(html, to: destinationURL)
         return destinationURL
     }
 
@@ -78,22 +107,24 @@ final class ExportPDFService {
         try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
 
         let orderedMessages = messages.sorted { $0.date < $1.date }
-        let html = buildHTML(for: thread, messages: orderedMessages, appState: appState)
+        let context = appState.exportRenderContext(for: thread)
+        let html = buildHTML(for: thread, messages: orderedMessages, context: context)
 
         // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
         let diagnosticURL = parentDirectory.appendingPathComponent("Forensic_Export_Verification.html")
         try html.write(to: diagnosticURL, atomically: true, encoding: .utf8)
 
         // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
-        try await renderHTMLAsync(html, thread: thread, messages: orderedMessages, appState: appState, to: destinationURL)
+        try await renderHTMLAsync(html, to: destinationURL)
         return destinationURL
     }
 
     /// Automatically generates a legally-structured default filename for exports,
     /// encoding key forensic identifiers: `Participant_StartYearMonthDay_to_EndYearMonthDay.pdf`.
     func defaultFileName(for thread: ChatThread, messages: [MessageItem], appState: AppState) -> String {
-        let participants = participantSummary(for: thread, messages: messages, appState: appState)
-        let threadLabel = participants.isEmpty ? appState.resolveThreadTitle(thread) : participants
+        let context = appState.exportRenderContext(for: thread)
+        let participants = participantSummary(for: thread, messages: messages, context: context)
+        let threadLabel = participants.isEmpty ? context.threadTitle : participants
         let startDate = messages.first?.date ?? Date()
         let endDate = messages.last?.date ?? Date()
         let formatter = DateFormatter()
@@ -110,9 +141,9 @@ final class ExportPDFService {
     /// Assembles raw thread structures and message objects into a monolithic HTML string.
     /// This includes writing the layout style block, the evidence manifest cover,
     /// a participant list, and the itemized conversation stream.
-    private func buildHTML(for thread: ChatThread,
-                           messages: [MessageItem],
-                           appState: AppState) -> String {
+    func buildHTML(for thread: ChatThread,
+                   messages: [MessageItem],
+                   context: ExportRenderContext) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -120,9 +151,9 @@ final class ExportPDFService {
         // Build the Conversation Manifest key-value table rows
         let manifestRows: [String] = [
             ("Case ID", "[CASE-ID]"),
-            ("Evidence Custodian", "Moeed Ahmad"),
+            ("Evidence Custodian", context.evidenceCustodian),
             ("Extraction Engine", "Blue Bubble Vault"),
-            ("Host Target Hardware", hostName()),
+            ("Host Target Hardware", context.hostName),
             ("Thread Profile", thread.chatIdentifier.isEmpty ? thread.guid : thread.chatIdentifier),
             ("Thread GUID", thread.guid.isEmpty ? "[unavailable]" : thread.guid),
             ("Temporal Start", formatter.string(from: messages.first?.date ?? Date())),
@@ -133,7 +164,7 @@ final class ExportPDFService {
         }
 
         // Build the list items for mapped thread participants
-        let participantRows: [String] = participantEntries(for: thread, messages: messages, appState: appState).map { handle, name in
+        let participantRows: [String] = participantEntries(for: thread, messages: messages, context: context).map { handle, name in
             let resolved = name.isEmpty ? "Unresolved" : name
             return "<li><span class=\"participant-handle\">\(escapeHTML(handle))</span><span class=\"participant-name\">\(escapeHTML(resolved))</span></li>"
         }
@@ -144,7 +175,7 @@ final class ExportPDFService {
         let messageRows: [String] = messages.map { message in
             let direction = message.isFromMe ? "Sent" : "Received"
             let bubbleClass = message.isFromMe ? "outgoing" : "incoming"
-            let senderName = resolveDisplayName(for: message, thread: thread, appState: appState)
+            let senderName = resolveDisplayName(for: message, thread: thread, context: context)
             let messageText = escapeHTML(message.text.isEmpty ? "[No message text]" : message.text)
             let timestamp = formatter.string(from: message.date)
             let guid = "message-\(thread.chatID)-\(message.messageID)"
@@ -166,8 +197,8 @@ final class ExportPDFService {
             """
         }
 
-        let threadTitle = escapeHTML(appState.resolveThreadTitle(thread))
-        let sourceLabel = escapeHTML(appState.selectedSource?.displayName ?? "Unknown")
+        let threadTitle = escapeHTML(context.threadTitle)
+        let sourceLabel = escapeHTML(context.sourceDisplayName)
         let legalNotice = escapeHTML("This export was generated directly from the local forensic archive layers and is intended for evidentiary review, chain-of-custody documentation, and legal discovery workflows.")
 
         // Output the final monolithic HTML template
@@ -177,15 +208,15 @@ final class ExportPDFService {
         <head>
           <meta charset="utf-8">
           <style>
-            /* Define print properties for standard Letter size with standard half-inch margins */
+            /* Define print properties for standard A4 size. Page padding is handled by .pdf-page. */
             @page {
-              size: Letter;
-              margin: 0.5in;
+              size: A4;
+              margin: 0;
             }
             /* Reset body properties and strip Flex/Grid wrappers to avoid infinite canvas expansion */
             html, body {
               display: block !important;
-              width: 100% !important;
+              width: 595px !important;
               height: auto !important;
               max-height: none !important;
               overflow: visible !important;
@@ -197,12 +228,58 @@ final class ExportPDFService {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            /* Ensure the cover manifest cover doesn't flex-stretch and breaks cleanly to Page 2 */
+            #pagination-source {
+              display: block;
+            }
+            #pdf-pages {
+              display: block;
+              position: absolute;
+              left: -10000px;
+              top: 0;
+              width: 595px;
+              visibility: hidden;
+            }
+            body.paginated #pagination-source {
+              display: none !important;
+            }
+            body.paginated #pdf-pages {
+              display: block !important;
+              position: static;
+              left: auto;
+              top: auto;
+              visibility: visible;
+            }
+            .pdf-page {
+              width: 595px;
+              height: 842px;
+              box-sizing: border-box;
+              padding: 36px;
+              margin: 0;
+              background: #ffffff;
+              overflow: hidden;
+              page-break-after: always;
+              break-after: page;
+            }
+            .pdf-page:last-child {
+              page-break-after: auto;
+              break-after: auto;
+            }
+            .page-content {
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+            }
+            .page-overflow {
+              font-size: 11px;
+              line-height: 1.4;
+              padding: 10px 12px;
+              border: 1px solid #000000;
+              background: #fff4d6;
+              color: #000000;
+            }
             .cover {
               display: block !important;
               height: auto !important;
-              page-break-after: always !important;
-              break-after: page !important;
               padding-top: 10px;
               color: #000000 !important;
             }
@@ -352,29 +429,105 @@ final class ExportPDFService {
           </style>
         </head>
         <body>
-          <section class="cover">
-            <div class="eyebrow">Forensic Evidence Export</div>
-            <h1>Conversation Manifest</h1>
-            <div class="subtitle">Prepared for legal review • Thread: \(threadTitle) • Source: \(sourceLabel)</div>
-            <table class="manifest-table">
-              <tbody>
-                \(manifestRows.joined(separator: ""))
-              </tbody>
-            </table>
-            <div class="participants">
-              <strong>Unified Mapped Participants</strong>
-              <ul>
-                \(participantRows.joined(separator: ""))
-              </ul>
-            </div>
-            <div class="legal-block">
-              <strong>Compliance Notice:</strong><br>\(legalNotice)
-            </div>
-          </section>
-          <section class="stream">
-            <h2>Itemized Message Stream</h2>
-            \(messageRows.joined(separator: ""))
-          </section>
+          <div id="pagination-source">
+            <section class="cover">
+              <div class="eyebrow">Forensic Evidence Export</div>
+              <h1>Conversation Manifest</h1>
+              <div class="subtitle">Prepared for legal review • Thread: \(threadTitle) • Source: \(sourceLabel)</div>
+              <table class="manifest-table">
+                <tbody>
+                  \(manifestRows.joined(separator: ""))
+                </tbody>
+              </table>
+              <div class="participants">
+                <strong>Unified Mapped Participants</strong>
+                <ul>
+                  \(participantRows.joined(separator: ""))
+                </ul>
+              </div>
+              <div class="legal-block">
+                <strong>Compliance Notice:</strong><br>\(legalNotice)
+              </div>
+            </section>
+            <section class="stream">
+              <h2 data-stream-title>Itemized Message Stream</h2>
+              <div id="message-source">
+                \(messageRows.joined(separator: ""))
+              </div>
+            </section>
+          </div>
+          <div id="pdf-pages"></div>
+          <script>
+            (function() {
+              function createPage() {
+                var page = document.createElement('section');
+                page.className = 'pdf-page';
+                var content = document.createElement('div');
+                content.className = 'page-content';
+                page.appendChild(content);
+                document.getElementById('pdf-pages').appendChild(page);
+                return content;
+              }
+
+              function fits(content) {
+                return content.scrollHeight <= content.clientHeight + 1;
+              }
+
+              function appendWholeBlock(content, block) {
+                content.appendChild(block);
+                if (fits(content)) {
+                  return true;
+                }
+                content.removeChild(block);
+                return false;
+              }
+
+              function paginateExport() {
+                try {
+                var pages = document.getElementById('pdf-pages');
+                pages.innerHTML = '';
+
+                var cover = document.querySelector('.cover').cloneNode(true);
+                var coverPage = createPage();
+                coverPage.appendChild(cover);
+                if (!fits(coverPage)) {
+                  coverPage.appendChild(document.createElement('div')).className = 'page-overflow';
+                }
+
+                var currentPage = createPage();
+                var title = document.querySelector('[data-stream-title]').cloneNode(true);
+                currentPage.appendChild(title);
+
+                var rows = document.querySelectorAll('#message-source .message-row');
+                rows.forEach(function(row) {
+                  var clone = row.cloneNode(true);
+                  if (!appendWholeBlock(currentPage, clone)) {
+                    currentPage = createPage();
+                    if (!appendWholeBlock(currentPage, clone)) {
+                      clone.classList.add('page-overflow');
+                      currentPage.appendChild(clone);
+                    }
+                  }
+                });
+
+                document.body.classList.add('paginated');
+                window.__BBV_PAGINATED__ = true;
+                } catch (error) {
+                  window.__BBV_PAGINATION_ERROR__ = error && error.message ? error.message : String(error);
+                }
+              }
+
+              function schedulePagination() {
+                setTimeout(paginateExport, 0);
+              }
+
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', schedulePagination);
+              } else {
+                schedulePagination();
+              }
+            })();
+          </script>
         </body>
         </html>
         """
@@ -384,21 +537,20 @@ final class ExportPDFService {
     /// loads the generated HTML, and blocks execution asynchronously until the PDF compilation finishes.
     @MainActor
     private func renderHTMLAsync(_ html: String,
-                                 thread: ChatThread,
-                                 messages: [MessageItem],
-                                 appState: AppState,
                                  to outputURL: URL) async throws {
+        let pageRect = Self.a4PageRect
+
         // Create an offscreen window framework. This is critical because Cocoa's WebKit rendering engine
         // will not compute canvas layouts or process rendering calls if its host view has no window association.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 816, height: 1056),
+            contentRect: pageRect,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
 
-        // Initialize WebKit view with explicit non-zero Letter dimensions (816x1056)
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 816, height: 1056))
+        // Initialize WebKit view with explicit non-zero A4 dimensions.
+        let webView = WKWebView(frame: pageRect)
         window.contentView?.addSubview(webView)
 
         // Secure a strong reference to the web view inside the class singleton instance.
@@ -441,12 +593,12 @@ final class ExportPDFService {
     /// cross-referencing contact state maps.
     private func resolveDisplayName(for message: MessageItem,
                                     thread: ChatThread,
-                                    appState: AppState) -> String {
+                                    context: ExportRenderContext) -> String {
         if message.isFromMe {
             return "You"
         }
 
-        if !message.senderID.isEmpty, let name = appState.resolvedNames[message.senderID], !name.isEmpty {
+        if !message.senderID.isEmpty, let name = context.resolvedNames[message.senderID], !name.isEmpty {
             return name
         }
 
@@ -464,7 +616,7 @@ final class ExportPDFService {
     /// Resolves and aggregates unique participant identities mapped across thread logs.
     private func participantEntries(for thread: ChatThread,
                                     messages: [MessageItem],
-                                    appState: AppState) -> [(handle: String, name: String)] {
+                                    context: ExportRenderContext) -> [(handle: String, name: String)] {
         var handles: [String] = []
 
         if !thread.chatIdentifier.isEmpty {
@@ -482,12 +634,12 @@ final class ExportPDFService {
         var seen = Set<String>()
         var entries: [(String, String)] = []
         for handle in handles where !handle.isEmpty && seen.insert(handle).inserted {
-            let resolved = appState.resolvedNames[handle] ?? ""
+            let resolved = context.resolvedNames[handle] ?? ""
             entries.append((handle, resolved))
         }
 
         if entries.isEmpty {
-            let fallback = appState.resolveThreadTitle(thread)
+            let fallback = context.threadTitle
             entries.append((thread.chatIdentifier.isEmpty ? "thread" : thread.chatIdentifier, fallback))
         }
 
@@ -497,8 +649,8 @@ final class ExportPDFService {
     /// Generates a brief participant sequence to summarize the thread structure.
     private func participantSummary(for thread: ChatThread,
                                     messages: [MessageItem],
-                                    appState: AppState) -> String {
-        let entries = participantEntries(for: thread, messages: messages, appState: appState)
+                                    context: ExportRenderContext) -> String {
+        let entries = participantEntries(for: thread, messages: messages, context: context)
         let names = entries.map { entry in
             let resolved = entry.name.isEmpty ? entry.handle : "\(entry.name) (\(entry.handle))"
             return resolved
@@ -523,11 +675,6 @@ final class ExportPDFService {
         return escaped
     }
 
-    /// Resolves the hostname profile of the target hardware logging the export.
-    private func hostName() -> String {
-        let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        return host.isEmpty ? "Local macOS Host" : host
-    }
 }
 
 // MARK: - Navigation Delegate
@@ -558,24 +705,66 @@ private final class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
     /// Standard navigation completed callback. Checks document readiness status,
     /// then initiates the vector createPDF WebKit rendering operation.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.evaluateJavaScript("document.readyState") { [weak self] (result, error) in
+        waitForHTMLPagination(in: webView)
+    }
+
+    private func waitForHTMLPagination(in webView: WKWebView, attempt: Int = 0) {
+        let script = """
+        ({
+          isReady: Boolean(window.__BBV_PAGINATED__ === true && document.body.classList.contains('paginated')),
+          error: window.__BBV_PAGINATION_ERROR__ || null
+        })
+        """
+        webView.evaluateJavaScript(script) { [weak self] result, error in
             guard let self = self else { return }
-            
-            // Invoke the modern WebKit vector PDF compilation API
-            let configuration = WKPDFConfiguration()
-            webView.createPDF(configuration: configuration) { pdfResult in
-                switch pdfResult {
-                case .success(let data):
-                    do {
-                        // Persist the rendered vector PDF binary directly to disk
-                        try data.write(to: self.outputURL)
-                        self.complete(with: .success(()))
-                    } catch {
-                        self.complete(with: .failure(error))
-                    }
-                case .failure(let error):
+
+            if let error {
+                self.complete(with: .failure(error))
+                return
+            }
+
+            if let state = result as? [String: Any],
+               let message = state["error"] as? String,
+               !message.isEmpty {
+                self.complete(with: .failure(ExportPDFError.renderFailed("Failed to lay out A4 export pages: \(message)")))
+                return
+            }
+
+            if let state = result as? [String: Any],
+               (state["isReady"] as? Bool) == true {
+                self.renderPDF(from: webView)
+                return
+            }
+
+            guard attempt < 100 else {
+                self.complete(with: .failure(ExportPDFError.renderFailed("Timed out while laying out A4 export pages.")))
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.waitForHTMLPagination(in: webView, attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func renderPDF(from webView: WKWebView) {
+        // Invoke the modern WebKit vector PDF compilation API. The HTML has already
+        // moved whole message rows into fixed A4 page containers before this point.
+        let configuration = WKPDFConfiguration()
+        webView.createPDF(configuration: configuration) { [weak self] pdfResult in
+            guard let self = self else { return }
+
+            switch pdfResult {
+            case .success(let data):
+                do {
+                    let paginatedData = try ExportPDFService.paginatedA4PDFData(from: data)
+                    try paginatedData.write(to: self.outputURL)
+                    self.complete(with: .success(()))
+                } catch {
                     self.complete(with: .failure(error))
                 }
+            case .failure(let error):
+                self.complete(with: .failure(error))
             }
         }
     }
@@ -592,11 +781,58 @@ private final class PDFNavigationDelegate: NSObject, WKNavigationDelegate {
 /// Custom localized error descriptions for standard rendering failures.
 enum ExportPDFError: LocalizedError {
     case renderFailed(String)
+    case invalidPDFData
 
     var errorDescription: String? {
         switch self {
         case .renderFailed(let message):
             return message
+        case .invalidPDFData:
+            return "The PDF renderer returned data that could not be paginated."
         }
+    }
+}
+
+extension ExportPDFService {
+    static func paginatedA4PDFData(from data: Data) throws -> Data {
+        guard let provider = CGDataProvider(data: data as CFData),
+              let sourceDocument = CGPDFDocument(provider) else {
+            throw ExportPDFError.invalidPDFData
+        }
+
+        let output = NSMutableData()
+        var targetRect = a4PageRect
+        guard let consumer = CGDataConsumer(data: output as CFMutableData),
+              let context = CGContext(consumer: consumer, mediaBox: &targetRect, nil) else {
+            throw ExportPDFError.invalidPDFData
+        }
+
+        let sourcePageCount = max(sourceDocument.numberOfPages, 1)
+
+        for pageIndex in 1...sourcePageCount {
+            guard let sourcePage = sourceDocument.page(at: pageIndex) else { continue }
+
+            let sourceBox = sourcePage.getBoxRect(.mediaBox)
+            let scale = min(targetRect.width / sourceBox.width, 1.0)
+            let sliceHeightInSource = targetRect.height / scale
+            let sliceCount = max(Int(ceil(sourceBox.height / sliceHeightInSource)), 1)
+
+            for sliceIndex in 0..<sliceCount {
+                context.beginPDFPage(nil)
+                context.saveGState()
+                context.clip(to: targetRect)
+                context.scaleBy(x: scale, y: scale)
+
+                let yOffset = (targetRect.height / scale) - sourceBox.height + (CGFloat(sliceIndex) * sliceHeightInSource)
+                context.translateBy(x: -sourceBox.minX, y: yOffset - sourceBox.minY)
+                context.drawPDFPage(sourcePage)
+
+                context.restoreGState()
+                context.endPDFPage()
+            }
+        }
+
+        context.closePDF()
+        return output as Data
     }
 }
