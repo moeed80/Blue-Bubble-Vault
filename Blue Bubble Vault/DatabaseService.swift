@@ -57,8 +57,11 @@ public struct MessageItem: Identifiable, Hashable {
 
 public final class DatabaseService {
     private var db: OpaquePointer?
+    private let lock = NSRecursiveLock()
     
     public var isOpen: Bool {
+        lock.lock()
+        defer { lock.unlock() }
         return db != nil
     }
     
@@ -66,6 +69,13 @@ public final class DatabaseService {
     
     deinit {
         close()
+    }
+
+    private func closeUnlocked() {
+        if db != nil {
+            sqlite3_close(db)
+            db = nil
+        }
     }
     
     /// Safely extracts a String from a statement column, handling null pointers.
@@ -79,8 +89,11 @@ public final class DatabaseService {
     
     /// Opens the database at the specified path in read-only mode.
     public func open(path: String) -> Bool {
-        close()
-        let result = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil)
+        lock.lock()
+        defer { lock.unlock() }
+
+        closeUnlocked()
+        let result = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
         if result != SQLITE_OK {
             if let dbPointer = db, let errorMsg = sqlite3_errmsg(dbPointer) {
                 let str = String(cString: errorMsg)
@@ -88,7 +101,7 @@ public final class DatabaseService {
             } else {
                 print("Failed to open database at \(path) with an unknown error.")
             }
-            close()
+            closeUnlocked()
             return false
         }
         return true
@@ -96,14 +109,16 @@ public final class DatabaseService {
     
     /// Closes the active database connection.
     public func close() {
-        if db != nil {
-            sqlite3_close(db)
-            db = nil
-        }
+        lock.lock()
+        defer { lock.unlock() }
+        closeUnlocked()
     }
     
     /// Cultivates all active chat threads from the database.
     public func fetchChatThreads() -> [ChatThread] {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard let db = db else { return [] }
         
         let query = """
@@ -161,6 +176,9 @@ public final class DatabaseService {
         keyword: String?,
         includeMedia: Bool
     ) -> [MessageItem] {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard let db = db else { return [] }
         
         var query = """
@@ -175,7 +193,9 @@ public final class DatabaseService {
             COALESCE(a.filename, '') as attachment_filename,
             COALESCE(a.mime_type, '') as attachment_mime,
             COALESCE(a.total_bytes, 0) as attachment_bytes,
-            m.attributedBody as message_attributed_body
+            m.attributedBody as message_attributed_body,
+            COALESCE(m.associated_message_type, 0) as associated_message_type,
+            COALESCE(m.associated_message_guid, '') as associated_message_guid
         FROM message m
         JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
         LEFT JOIN handle h ON m.handle_id = h.ROWID
@@ -202,11 +222,6 @@ public final class DatabaseService {
         }
         if endDate != nil {
             query += " AND m.date <= ?"
-        }
-        
-        // Add Keyword constraints
-        if let key = keyword, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            query += " AND (m.text LIKE ? OR m.attributedBody IS NOT NULL)"
         }
         
         query += "\nORDER BY m.date ASC;"
@@ -237,16 +252,15 @@ public final class DatabaseService {
             bindIndex += 1
         }
         
-        if let key = keyword, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            sqlite3_bind_text(statement, bindIndex, "%\(key)%", -1, nil)
-            bindIndex += 1
-        }
+        let normalizedKeyword = keyword?.trimmingCharacters(in: .whitespacesAndNewlines)
         
         var messagesMap: [Int64: MessageItem] = [:]
         var messagesOrdered: [Int64] = []
         
         while sqlite3_step(statement) == SQLITE_ROW {
             let messageID = sqlite3_column_int64(statement, 0)
+            let associatedMessageType = sqlite3_column_int(statement, 11)
+            let associatedMessageGUID = getString(from: statement, at: 12)
             
             // Get the text properly
             let textColumnIndex = 1
@@ -259,27 +273,34 @@ public final class DatabaseService {
                 text = String(cString: textPtr)
             }
 
-            // If text is empty and we have an attributedBody, decode the legacy typedstream
-            // If text is empty and we have an attributedBody, decode the legacy typedstream safely
+            // Some real Messages rows keep body text in attributedBody. Avoid Objective-C
+            // unarchiving here because malformed or newer blobs can terminate the process.
             if text.isEmpty {
                 if let blobBytes = sqlite3_column_blob(statement, Int32(blobColumnIndex)) {
                     let blobLength = Int(sqlite3_column_bytes(statement, Int32(blobColumnIndex)))
                     if blobLength > 0 {
                         let rawData = Data(bytes: blobBytes, count: blobLength)
-                        
-                        // Bypass the static deprecation warning by fetching the class dynamically at runtime
-                        if let legacyUnarchiverClass: AnyObject = NSClassFromString("NSUnarchiver") {
-                            let selector = #selector(NSKeyedUnarchiver.unarchiveObject(with:))
-                            if legacyUnarchiverClass.responds(to: selector) {
-                                if let unmanagedResult = legacyUnarchiverClass.perform(selector, with: rawData) {
-                                    if let attributedString = unmanagedResult.takeUnretainedValue() as? NSAttributedString {
-                                        text = attributedString.string
-                                    }
-                                }
-                            }
-                        }
+                        text = extractReadableText(fromAttributedBody: rawData)
                     }
                 }
+            }
+
+            if let tapbackText = tapbackDescription(for: associatedMessageType) {
+                text = tapbackText
+            } else if let tapbackText = tapbackDescription(forMarker: text) {
+                text = tapbackText
+            } else if !associatedMessageGUID.isEmpty,
+                      let associatedText = associatedMessageDescription(forPayload: text) {
+                text = associatedText
+            } else if associatedMessageType != 0 {
+                text = "Reacted to a message"
+            } else if isAppleMessageMetadata(text) {
+                text = ""
+            }
+
+            if let normalizedKeyword, !normalizedKeyword.isEmpty,
+               !text.localizedCaseInsensitiveContains(normalizedKeyword) {
+                continue
             }
             
             // Convert nanoseconds to Date
@@ -333,6 +354,9 @@ public final class DatabaseService {
         startDate: Date?,
         endDate: Date?
     ) -> Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+
         guard let db = db else { return 0 }
         
         var query = """
@@ -390,5 +414,218 @@ public final class DatabaseService {
             return String(cString: err)
         }
         return "Unknown error"
+    }
+
+    private func extractReadableText(fromAttributedBody data: Data) -> String {
+        var candidates = [String(decoding: data, as: UTF8.self)]
+        if let bomEncodedString = decodeExplicitUTF16Data(data) {
+            candidates.append(bomEncodedString)
+        }
+
+        return candidates
+            .flatMap(readableRuns(in:))
+            .max { readableTextScore($0) < readableTextScore($1) } ?? ""
+    }
+
+    private func decodeExplicitUTF16Data(_ data: Data) -> String? {
+        guard data.count >= 2 else { return nil }
+
+        let first = data[data.startIndex]
+        let second = data[data.index(after: data.startIndex)]
+
+        if first == 0xFF && second == 0xFE {
+            return String(data: data.dropFirst(2), encoding: .utf16LittleEndian)
+        }
+        if first == 0xFE && second == 0xFF {
+            return String(data: data.dropFirst(2), encoding: .utf16BigEndian)
+        }
+
+        return nil
+    }
+
+    private func readableRuns(in string: String) -> [String] {
+        var runs: [String] = []
+        var current = String.UnicodeScalarView()
+
+        func flushCurrentRun() {
+            let value = sanitizeReadableRun(String(current).trimmingCharacters(in: .whitespacesAndNewlines))
+            current.removeAll(keepingCapacity: true)
+
+            guard isLikelyReadableText(value),
+                  !isAppleMessageMetadata(value) else {
+                return
+            }
+            runs.append(value)
+        }
+
+        for scalar in string.unicodeScalars {
+            if scalar == "\u{FFFD}" {
+                flushCurrentRun()
+                continue
+            }
+
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) ||
+                CharacterSet.alphanumerics.contains(scalar) ||
+                CharacterSet.punctuationCharacters.contains(scalar) ||
+                CharacterSet.symbols.contains(scalar) {
+                current.append(scalar)
+            } else {
+                flushCurrentRun()
+            }
+        }
+
+        flushCurrentRun()
+        return runs
+    }
+
+    private func isLikelyReadableText(_ value: String) -> Bool {
+        let scalars = Array(value.unicodeScalars)
+        guard !scalars.isEmpty else { return false }
+
+        let letters = scalars.filter { CharacterSet.letters.contains($0) }.count
+        let digits = scalars.filter { CharacterSet.decimalDigits.contains($0) }.count
+        let emoji = scalars.filter(isEmojiScalar).count
+        let separators = scalars.filter { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.punctuationCharacters.contains($0) }.count
+
+        guard letters > 0 || emoji > 0 else { return false }
+
+        let meaningfulCharacters = letters + digits + separators + emoji
+        guard Double(meaningfulCharacters) / Double(scalars.count) > 0.8 else { return false }
+
+        if digits > letters + emoji + separators {
+            return false
+        }
+
+        return true
+    }
+
+    private func readableTextScore(_ value: String) -> Int {
+        value.unicodeScalars.reduce(0) { score, scalar in
+            if CharacterSet.letters.contains(scalar) { return score + 3 }
+            if isEmojiScalar(scalar) { return score + 3 }
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) { return score + 2 }
+            if CharacterSet.decimalDigits.contains(scalar) { return score + 1 }
+            if CharacterSet.punctuationCharacters.contains(scalar) { return score + 1 }
+            return score
+        }
+    }
+
+    private func sanitizeReadableRun(_ value: String) -> String {
+        var sanitized = value
+        for token in appleMessageMetadataTokens {
+            sanitized = sanitized.replacingOccurrences(of: token, with: "")
+        }
+        return sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isAppleMessageMetadata(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        if appleMessageMetadataTokens.contains(trimmed) { return true }
+        if tapbackMarkerTokens.contains(trimmed) { return true }
+        if trimmed.hasPrefix("__kIM") || trimmed.hasPrefix("kIM") { return true }
+        if trimmed.hasPrefix("NS") && !trimmed.contains(" ") { return true }
+        if trimmed.hasPrefix("+k") || trimmed.hasPrefix("-k") { return true }
+        return false
+    }
+
+    private var appleMessageMetadataTokens: Set<String> {
+        [
+            "__kIMMessagePartAttributeName",
+            "__kIMFileTransferGUIDAttributeName",
+            "__kIMMentionConfirmedMention",
+            "NSString",
+            "NSDictionary",
+            "NSMutableDictionary",
+            "NSObject",
+            "NSNumber",
+            "NSAttributedString",
+            "NSFont",
+            "NSColor",
+            "NSParagraphStyle",
+            "streamtyped",
+            "typedstream"
+        ]
+    }
+
+    private var tapbackMarkerTokens: Set<String> {
+        [
+            "+kLoved", "+kLiked", "+kDisliked", "+kLaughed", "+kEmphasized", "+kQuestioned",
+            "-kLoved", "-kLiked", "-kDisliked", "-kLaughed", "-kEmphasized", "-kQuestioned"
+        ]
+    }
+
+    private func isTapbackMarker(_ value: String) -> Bool {
+        tapbackMarkerTokens.contains(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func tapbackDescription(forMarker value: String) -> String? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "+kLoved": return "Loved a message"
+        case "+kLiked": return "Liked a message"
+        case "+kDisliked": return "Disliked a message"
+        case "+kLaughed": return "Laughed at a message"
+        case "+kEmphasized": return "Emphasized a message"
+        case "+kQuestioned": return "Questioned a message"
+        case "-kLoved": return "Removed a love from a message"
+        case "-kLiked": return "Removed a like from a message"
+        case "-kDisliked": return "Removed a dislike from a message"
+        case "-kLaughed": return "Removed a laugh from a message"
+        case "-kEmphasized": return "Removed emphasis from a message"
+        case "-kQuestioned": return "Removed a question from a message"
+        default: return nil
+        }
+    }
+
+    private func tapbackDescription(for associatedMessageType: Int32) -> String? {
+        switch associatedMessageType {
+        case 2000: return "Loved a message"
+        case 2001: return "Liked a message"
+        case 2002: return "Disliked a message"
+        case 2003: return "Laughed at a message"
+        case 2004: return "Emphasized a message"
+        case 2005: return "Questioned a message"
+        case 3000: return "Removed a love from a message"
+        case 3001: return "Removed a like from a message"
+        case 3002: return "Removed a dislike from a message"
+        case 3003: return "Removed a laugh from a message"
+        case 3004: return "Removed emphasis from a message"
+        case 3005: return "Removed a question from a message"
+        default: return nil
+        }
+    }
+
+    private func associatedMessageDescription(forPayload value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Reacted to a message" }
+
+        if isAppleMessageMetadata(trimmed) {
+            return "Reacted to a message"
+        }
+
+        if trimmed.hasPrefix("+:") || trimmed.hasPrefix("-:") {
+            let payload = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !payload.isEmpty else { return "Reacted to a message" }
+            return trimmed.hasPrefix("-:") ? "Removed reaction \(payload)" : "Reacted with \(payload)"
+        }
+
+        if trimmed.range(of: #"^[+-]\d+$"#, options: .regularExpression) != nil {
+            return "Reacted to a message"
+        }
+
+        if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
+            return "Reacted to a message"
+        }
+
+        return nil
+    }
+
+    private func isEmojiScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x1F000...0x1FAFF, 0x2600...0x27BF, 0x2300...0x23FF:
+            return true
+        default:
+            return false
+        }
     }
 }

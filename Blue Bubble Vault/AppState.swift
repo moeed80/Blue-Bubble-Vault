@@ -111,6 +111,7 @@ public final class AppState: ObservableObject {
     public let databaseService = DatabaseService()
     private var simulatedThreads: [ChatThread] = []
     private var simulatedMessages: [Int64: [MessageItem]] = [:]
+    private var messageLoadRequestID = UUID()
         
     private var isRunningUnderXCTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -295,6 +296,8 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
     // MARK: - Private Implementations
     
     private func handleSourceChange() {
+        messageLoadRequestID = UUID()
+
         guard let source = selectedSource else {
             self.chatThreads = []
             self.selectedThread = nil
@@ -337,6 +340,8 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
     }
     
     private func loadMessages() {
+        messageLoadRequestID = UUID()
+
         guard let source = selectedSource, let thread = selectedThread else {
             self.messages = []
             self.estimatedExportSize = 0
@@ -352,10 +357,18 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
         let includeMediaToggle = includeMedia
         let threadID = thread.chatID
         let sourcePath = source.path
+        let requestID = messageLoadRequestID
         
         // Execute message queries and calculations on background thread
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
+
+            let shouldRun = DispatchQueue.main.sync {
+                self.messageLoadRequestID == requestID &&
+                self.selectedThread?.chatID == threadID &&
+                self.selectedSource?.path == sourcePath
+            }
+            guard shouldRun else { return }
             
             var fetchedMessages: [MessageItem] = []
             var estimatedSize: Int64 = 0
@@ -404,7 +417,8 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
             // Dispatch final updates to the Main actor
             DispatchQueue.main.async {
                 // Confirm selection did not change during query
-                guard self.selectedThread?.chatID == threadID,
+                guard self.messageLoadRequestID == requestID,
+                      self.selectedThread?.chatID == threadID,
                       self.selectedSource?.path == sourcePath else {
                     return
                 }
