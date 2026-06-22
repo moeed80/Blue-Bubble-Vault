@@ -12,12 +12,13 @@ struct ExportProgressView: View {
     let progress: Double
     let stage: String
     let isCompleted: Bool
+    let isFailed: Bool
     let destinationURL: URL?
     let onDismiss: () -> Void
     
     var body: some View {
         VStack(spacing: 24) {
-            Text(isCompleted ? "Export Completed!" : "Compiling Secure Vault Archive...")
+            Text(statusTitle)
                 .font(.title2)
                 .fontWeight(.bold)
             
@@ -26,6 +27,11 @@ struct ExportProgressView: View {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 64))
                     .foregroundColor(.green)
+                    .transition(.scale)
+            } else if isFailed {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.orange)
                     .transition(.scale)
             } else {
                 ProgressView(value: progress)
@@ -40,7 +46,7 @@ struct ExportProgressView: View {
                     .multilineTextAlignment(.center)
                 
                 if isCompleted {
-                    Text("All target files, attachments, and forensic manifests have been built locally inside:")
+                    Text("Generated locally: A4 PDF, CSV, manifest JSON, and diagnostic HTML. Attachments are copied only when enabled and available.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -58,10 +64,16 @@ struct ExportProgressView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 20)
                     }
+                } else if isFailed {
+                    Text("No export package was completed. You can adjust the destination or filters and try again.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
                 }
             }
             
-            if isCompleted {
+            if isCompleted || isFailed {
                 Button("Dismiss") {
                     onDismiss()
                 }
@@ -78,5 +90,15 @@ struct ExportProgressView: View {
         .padding(40)
         .frame(width: 420, height: 300)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private var statusTitle: String {
+        if isFailed {
+            return "Export Failed"
+        }
+        if isCompleted {
+            return "Export Package Created"
+        }
+        return "Exporting Conversation..."
     }
 }

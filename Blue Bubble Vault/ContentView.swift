@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var exportStage = "Preparing database queries..."
     @State private var timer: Timer? = nil
     @State private var selectedExportURL: URL? = nil
+    @State private var exportFailed = false
     
     var body: some View {
         Group {
@@ -31,7 +32,7 @@ struct ContentView: View {
             // Removed automatic contact permission request
         }
         .sheet(isPresented: $showingExportSheet) {
-            ExportProgressView(progress: exportProgress, stage: exportStage, isCompleted: exportProgress >= 1.0, destinationURL: selectedExportURL) {
+            ExportProgressView(progress: exportProgress, stage: exportStage, isCompleted: exportProgress >= 1.0 && !exportFailed, isFailed: exportFailed, destinationURL: selectedExportURL) {
                 showingExportSheet = false
             }
         }
@@ -46,12 +47,12 @@ struct ContentView: View {
         }
 
         let panel = NSSavePanel()
-        panel.title = "Export Conversation PDF"
-        panel.message = "Choose a destination folder and filename for the eDiscovery export."
+        panel.title = "Export Conversation Package"
+        panel.message = "Choose a PDF filename. CSV, manifest JSON, and diagnostic HTML sidecars will be saved alongside it."
         panel.canCreateDirectories = true
-        panel.nameFieldLabel = "Export File"
+        panel.nameFieldLabel = "PDF File"
         panel.nameFieldStringValue = ExportPDFService.shared.defaultFileName(for: thread, messages: appState.messages, appState: appState)
-        panel.prompt = "Export"
+        panel.prompt = "Export Package"
         panel.isExtensionHidden = false
 
         panel.begin { response in
@@ -62,7 +63,7 @@ struct ContentView: View {
         }
     }
 
-    // Perform a real export process for the currently selected thread as a PDF.
+    // Perform a real export process for the currently selected thread as a local package.
     private func startRealExport(to destination: URL) {
         guard let thread = appState.selectedThread else {
             exportStage = "No conversation thread selected."
@@ -79,8 +80,9 @@ struct ContentView: View {
 
         showingExportSheet = true
         exportProgress = 0.05
-        exportStage = "Preparing the forensic export..."
+        exportStage = "Preparing the export package..."
         selectedExportURL = nil
+        exportFailed = false
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
@@ -94,21 +96,28 @@ struct ContentView: View {
         Task { @MainActor in
             do {
                 exportProgress = 0.2
-                exportStage = "Rendering the eDiscovery PDF..."
+                exportStage = "Rendering the A4 PDF and sidecar files..."
 
-                let exportURL = try await ExportPDFService.shared.exportThreadAsync(
+                let result = try await ExportPDFService.shared.exportThreadPackage(
                     to: destination,
                     thread: thread,
                     messages: messagesToExport,
                     appState: appState
                 )
 
-                selectedExportURL = exportURL
+                selectedExportURL = result.packageDirectoryURL
                 exportProgress = 1.0
-                exportStage = "PDF export completed successfully."
+                if result.copiedAttachmentCount > 0 {
+                    exportStage = "Export package completed. Copied \(result.copiedAttachmentCount) attachment file(s)."
+                } else if appState.includeMedia && result.missingAttachmentCount > 0 {
+                    exportStage = "Export package completed. Attachment metadata was recorded for unavailable files."
+                } else {
+                    exportStage = "Export package completed successfully."
+                }
             } catch {
                 print("Error during export: \(error.localizedDescription)")
                 exportStage = "Export Failed: \(error.localizedDescription)"
+                exportFailed = true
                 exportProgress = 1.0
             }
 
@@ -122,16 +131,63 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Brand Logo
+struct BrandLogoView: View {
+    let size: CGFloat
+    var cornerRadius: CGFloat? = nil
+    var showsShadow: Bool = false
+    
+    private var resolvedCornerRadius: CGFloat {
+        cornerRadius ?? size * 0.22
+    }
+    
+    var body: some View {
+        Image("BrandLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: resolvedCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: resolvedCornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(showsShadow ? 0.16 : 0), radius: showsShadow ? 10 : 0, x: 0, y: showsShadow ? 4 : 0)
+            .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Main Dashboard View
 struct MainDashboardView: View {
     @ObservedObject var appState: AppState
     @Binding var showingExportSheet: Bool
     let triggerExport: () -> Void
+
+    private var isFilteringExport: Bool {
+        appState.dateFilterMode == .range ||
+        !appState.keywordFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     
     var body: some View {
         NavigationSplitView {
             // Sidebar: Source Picker & Contact List
             VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    BrandLogoView(size: 34, cornerRadius: 10)
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Blue Bubble Vault")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        Text("Local message archive")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                
                 // Database Source Selector
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Database Source")
@@ -148,7 +204,6 @@ struct MainDashboardView: View {
                     .labelsHidden()
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 12)
                 
                 // Search Box
                 HStack {
@@ -364,7 +419,7 @@ struct MainDashboardView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Include Media Attachments")
                                         .fontWeight(.medium)
-                                    Text("Include photos, videos, documents, and audio transcripts")
+                                    Text("Copy available local attachment files into the export package")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                 }
@@ -375,6 +430,20 @@ struct MainDashboardView: View {
                             
                             // Storage Pre-Flight Metrics
                             HStack(spacing: 16) {
+                                if isFilteringExport {
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("Messages to Export:")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text("\(appState.messages.count)")
+                                            .font(.subheadline)
+                                            .fontWeight(.bold)
+                                    }
+                                    
+                                    Divider()
+                                        .frame(height: 30)
+                                }
+                                
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text("Estimated Export Size:")
                                         .font(.caption)
@@ -448,7 +517,7 @@ struct MainDashboardView: View {
                             .buttonStyle(.bordered)
                             .keyboardShortcut(.cancelAction)
                             
-                            Button("Export Thread") {
+                            Button("Export Package") {
                                 triggerExport()
                             }
                             .buttonStyle(.borderedProminent)
@@ -583,16 +652,8 @@ struct FDAOnboardingView: View {
         VStack(spacing: 24) {
             Spacer()
             
-            // Header Icon with subtle glow
-            ZStack {
-                Circle()
-                    .fill(Color.blue.opacity(0.1))
-                    .frame(width: 80, height: 80)
-                
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(.blue)
-            }
+            // Header brand mark
+            BrandLogoView(size: 86, cornerRadius: 24, showsShadow: true)
             
             VStack(spacing: 8) {
                 Text("Full Disk Access Required")
@@ -670,4 +731,3 @@ struct FDAOnboardingView: View {
         .background(Color(NSColor.textBackgroundColor))
     }
 }
-

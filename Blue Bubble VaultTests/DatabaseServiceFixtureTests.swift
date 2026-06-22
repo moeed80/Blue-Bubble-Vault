@@ -114,6 +114,43 @@ final class DatabaseServiceFixtureTests: XCTestCase {
         XCTAssertEqual(messages.first?.text, "Hidden settlement phrase")
     }
 
+    func testFetchMessagesKeywordDoesNotMatchDiscardedMetadataText() throws {
+        let service = DatabaseService()
+        XCTAssertTrue(service.open(path: databaseURL.path))
+        defer { service.close() }
+
+        let messages = service.fetchMessages(
+            chatID: 10,
+            startDate: nil,
+            endDate: nil,
+            keyword: "streamtyped",
+            includeMedia: false
+        )
+
+        XCTAssertEqual(messages.map(\.messageID), [])
+    }
+
+    func testDatePickerEndDateIncludesWholeSelectedDay() throws {
+        let service = DatabaseService()
+        XCTAssertTrue(service.open(path: databaseURL.path))
+        defer { service.close() }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let selectedEndDate = calendar.startOfDay(for: SyntheticMessagesFixture.attachmentMessageDate)
+        let inclusiveEndDate = AppState.inclusiveEndOfSelectedDay(for: selectedEndDate, calendar: calendar)
+
+        let messages = service.fetchMessages(
+            chatID: 10,
+            startDate: nil,
+            endDate: inclusiveEndDate,
+            keyword: "settlement",
+            includeMedia: false
+        )
+
+        XCTAssertEqual(messages.map(\.messageID), [103])
+    }
+
     func testFetchMessagesDoesNotDisplayUTF16InterpretationOfBinaryAttributedBody() throws {
         let service = DatabaseService()
         XCTAssertTrue(service.open(path: databaseURL.path))

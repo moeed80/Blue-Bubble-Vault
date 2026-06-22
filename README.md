@@ -1,144 +1,154 @@
-# 💬 Blue Bubble Vault
+# Blue Bubble Vault
 
-> A local, privacy-first macOS app to extract, filter, and permanently archive your iMessage, SMS, and RCS conversation history.
+Blue Bubble Vault is a local-first native macOS app for reviewing, filtering, and exporting Apple Messages / iMessage / SMS / RCS conversations.
 
-![macOS](https://img.shields.io/badge/macOS-13.0%2B-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-active%20development-yellow)
+The app is in active development. The current MVP focuses on safe demo data, local message source discovery, thread preview, filtering, export guardrails, and a local export package.
 
----
+## Privacy Promise
 
-## The Problem
+Blue Bubble Vault is designed around local processing:
 
-Apple's native Messages app offers no way to cleanly export or archive long conversation histories. The few third-party tools that exist are bloated, expensive, or route your private data through external cloud servers.
+- No cloud processing.
+- No accounts.
+- No subscription service requirement.
+- No network calls in the current app.
+- Demo mode can be used without granting private system permissions.
 
-## The Solution
+Exports may contain private message content. Treat generated PDFs, CSV files, manifests, diagnostic HTML files, and copied attachments as sensitive user data.
 
-Blue Bubble Vault runs **100% locally** on your Mac. No external server pings. No accounts. No subscriptions. Your messages never leave your device.
+## Current Features
 
----
+- Native SwiftUI macOS interface.
+- Full Disk Access onboarding for live Messages database access.
+- Simulated demo mode for safe development and demos.
+- Source picker for available message sources.
+- Thread list with search.
+- Optional Contacts sync toggle for name resolution.
+- Message preview for the selected thread.
+- Date range filtering.
+- Keyword filtering.
+- Include/exclude media toggle for preview, size estimates, and available attachment copies.
+- Message count display when a keyword or date range is active.
+- Estimated export size and available disk space display.
+- A4-paginated PDF export.
+- CSV export using the same filtered messages as the PDF.
+- Deterministic manifest JSON sidecar with generated file hashes.
+- Diagnostic HTML sidecar used to verify export rendering.
+- Optional attachment folder for available local attachment files.
+- Synthetic fixture tests for database behavior.
+- Unit tests for export HTML escaping, pagination scaffolding, and A4 page normalization.
 
-## Features
+## Not Yet Implemented
 
-- **Contact Discovery** — Scans your message database and presents a searchable list of all chat threads
-- **Interactive Preview & Filtering** — Review threads with real-time keyword and content-type filters before exporting
-- **Contact Name Resolution** — Resolves phone numbers and emails to full names via macOS Contacts
-- **Date Range Filtering** — Export all messages, or surgically select a custom start/end date range
-- **Media Attachment Control** — Choose whether to include photos, videos, documents, and voice notes
-- **Pre-Flight Size & Storage Check** — Calculates estimated export size and validates available disk space before writing anything
-- **Multiple Export Formats** — PDF/A (legal/archival), HTML (interactive), CSV/JSON (research/analysis)
-- **Legal Discovery Support** — SHA-256 message hashing, ISO 8601 timestamps, audit manifests, and forensic metadata
+These are planned or aspirational features, but they are not complete in the current app:
 
----
+- Standalone user-facing HTML export.
+- JSON export.
+- PDF/A generation or validation.
+- Message-level hashes and formal audit workflows.
+- Attachment embedding in the PDF.
+- PII redaction.
+- Encrypted iPhone backup handling.
+- Formal chain-of-custody workflow.
+- Automated UI tests.
 
-## System Requirements
+## Current Export Behavior
 
-| Requirement | Detail |
-|---|---|
-| macOS | 13.0 (Ventura) or newer |
-| Xcode | 15.0 or newer |
-| Swift | 5.9 or newer |
-| Permissions | Full Disk Access (see setup below) |
+The current export action creates:
 
----
+- An A4-sized PDF file for the selected thread and active filters.
+- A CSV file with one row per exported message.
+- A manifest JSON sidecar with stable metadata and SHA-256 hashes for generated output files.
+- A diagnostic HTML sidecar beside the PDF.
+- An attachments folder when media export is enabled and source attachment files are available.
 
-## ⚠️ Required Setup: Full Disk Access
+The diagnostic HTML is used to inspect the render source for the PDF. It is not yet a polished standalone archive format.
 
-Blue Bubble Vault reads from `~/Library/Messages/chat.db`, which is protected by macOS's TCC (Transparency, Consent, and Control) framework.
-
-**You must grant Full Disk Access before the app will function:**
-
-1. Open **System Settings → Privacy & Security → Full Disk Access**
-2. Click the **+** button and add **Blue Bubble Vault**
-3. Restart the app
-
-Without this permission, the app will return an `Operation not permitted` error when attempting to read the message database.
-
-> **Note:** App Sandbox is disabled to allow direct filesystem access. This app is intended for local personal use only.
-
----
+When media export is enabled, available attachment files are copied into the export package. Missing or unavailable attachment files are recorded in the CSV and manifest without failing the export.
 
 ## Data Sources
 
-Blue Bubble Vault supports two data paths depending on your setup:
+Blue Bubble Vault currently models three source types:
 
-| Mode | When to Use | Source Path |
+| Source | Current Status | Notes |
 |---|---|---|
-| **iCloud Sync** (Primary) | "Messages in iCloud" is enabled on your Mac | `~/Library/Messages/chat.db` |
-| **USB Device Backup** (Fallback) | Messages are not synced to Mac | `~/Library/Application Support/MobileSync/Backup/` |
+| Simulated demo data | Implemented | Safe for development, testing, and demos. |
+| Local Messages database | Partially implemented | Requires Full Disk Access when used against real local data. |
+| Local iPhone backups | Partially implemented | Discovers expected MobileSync backup locations, but backup variants and encrypted backups are not complete. |
 
-For the USB fallback, connect your iPhone, open Finder, and trigger an **unencrypted local backup** before launching the app.
+Development and automated testing must use only repo-local fixtures, mock data, or simulated demo data.
 
----
+## Full Disk Access
 
-## Export Formats
+macOS protects the local Messages database with system privacy controls. Live local database access requires Full Disk Access.
 
-| Format | Best For |
-|---|---|
-| **PDF/A** | Legal discovery, archival, printing |
-| **HTML** | Personal archives, interactive browsing |
-| **CSV / JSON** | Research, data analysis, scripting |
+Demo mode does not require Full Disk Access.
 
-All exports include optional PII redaction, forensic metadata headers, SHA-256 message hashes, and a sidecar audit manifest.
+For live local testing, the user must manually grant access in:
 
----
+`System Settings > Privacy & Security > Full Disk Access`
+
+Do not request or use Full Disk Access during automated development. Do not access a developer's real Messages database, Contacts, backups, Desktop, Downloads, or personal files while developing or testing.
 
 ## Project Structure
 
-```
-BlueBubbleVault/
-├── Sources/
-│   └── BlueBubbleVault/
-│       ├── Models/          # Data models (Message, Thread, Attachment, ExportConfig)
-│       ├── Views/           # SwiftUI views
-│       ├── ViewModels/      # AppState, business logic
-│       ├── Helpers/         # ContactsManager, DatabaseManager, StorageChecker
-│       ├── Export/          # PDF, HTML, CSV/JSON export engines
-│       └── Resources/       # Info.plist, Assets
-├── Tests/
-│   └── BlueBubbleVaultTests/
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   └── workflows/
-├── LICENSE
+```text
+Blue Bubble Vault/
+├── Blue Bubble Vault/
+│   ├── AppState.swift
+│   ├── Blue_Bubble_VaultApp.swift
+│   ├── ContactsManager.swift
+│   ├── ContentView.swift
+│   ├── DatabaseConnectionManager.swift
+│   ├── DatabaseService.swift
+│   ├── ExportPDFService.swift
+│   ├── ExportProgressView.swift
+│   ├── FDAPermissionManager.swift
+│   └── Assets.xcassets/
+├── Blue Bubble VaultTests/
+│   ├── DatabaseServiceFixtureTests.swift
+│   └── ExportPDFServiceHTMLTests.swift
+├── Blue Bubble Vault.xcodeproj/
+├── docs/
+├── AGENTS.md
+├── product-brief.md
 ├── README.md
-├── CONTRIBUTING.md
-└── SECURITY.md
+└── LICENSE
 ```
 
----
+## Development
 
-## Getting Started
+Open the Xcode project:
 
 ```bash
-git clone https://github.com/mangla-co/blue-bubble-vault.git
-cd blue-bubble-vault
-open BlueBubbleVault.xcodeproj
+open "Blue Bubble Vault.xcodeproj"
 ```
 
-Build and run in Xcode. Ensure Full Disk Access is granted before testing against a live database.
+After Swift changes, run the project build action or an appropriate `xcodebuild` command. Tests should use synthetic fixtures only and must not touch private local data.
 
----
+## Safety Rules for Contributors
 
-## Contributing
+- Do not access real `~/Library/Messages/chat.db` during automated development.
+- Do not access real Contacts, Messages, MobileSync backups, Desktop, Downloads, or personal files.
+- Use only repo-local synthetic fixtures, mocked data, or simulated demo data for tests.
+- Do not change signing, bundle identifiers, entitlements, App Sandbox settings, release configuration, or Info.plist privacy strings without explicit review.
+- Do not add network calls or cloud processing.
+- Keep export integrity logic deterministic and covered by tests where possible.
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
+## Roadmap
 
----
+Near-term work is focused on making the v1 export package useful and honest:
 
-## Security
-
-This app handles sensitive personal communication data. Please review [SECURITY.md](SECURITY.md) for our responsible disclosure policy before reporting vulnerabilities.
-
----
+- Continue hardening keyword and date range filtering.
+- Add stress tests for longer synthetic exports.
+- Improve attachment status presentation.
+- Add optional standalone HTML only when it can be reviewed as a user-facing format.
+- Keep user-facing copy aligned with generated files.
 
 ## License
 
-MIT License © 2026 [Mangla & Co LLC](https://mangla.co)
-
----
+MIT License. See [LICENSE](LICENSE).
 
 ## Disclaimer
 
-This tool is intended for lawful personal archiving of your own message history. Users are solely responsible for ensuring their use complies with applicable laws, including wiretapping and privacy statutes. The authors assume no liability for misuse.
+Blue Bubble Vault is intended for lawful personal archiving and review of message history the user is authorized to access. Users are responsible for ensuring their use complies with applicable privacy, consent, and recordkeeping laws.

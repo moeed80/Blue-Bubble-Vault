@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import WebKit
 import CoreGraphics
@@ -28,12 +29,76 @@ struct ExportRenderContext {
     }
 }
 
-/// `ExportPDFService` is a singleton service class responsible for exporting a chat thread's message history
-/// into two high-fidelity forensic formats: a diagnostic HTML file and a vector-perfect PDF.
-///
-/// This service utilizes a dual-output architecture designed for professional eDiscovery, legal discovery,
-/// and forensic audit scenarios. It combines synchronous disk logging of raw layout markup with asynchronous,
-/// offscreen WebKit rendering to guarantee that all messages are preserved, readable, and properly paginated.
+struct ExportFilterSnapshot: Equatable {
+    let dateMode: String
+    let startDate: Date?
+    let endDate: Date?
+    let keyword: String?
+    let includeMedia: Bool
+}
+
+struct ExportPackageResult {
+    let packageDirectoryURL: URL
+    let pdfURL: URL
+    let htmlURL: URL
+    let csvURL: URL
+    let manifestURL: URL
+    let attachmentsDirectoryURL: URL?
+    let copiedAttachmentCount: Int
+    let missingAttachmentCount: Int
+}
+
+struct ExportAttachmentRecord: Codable, Equatable {
+    let messageID: Int64
+    let attachmentID: Int64
+    let originalFilename: String
+    let copiedFilename: String?
+    let byteSize: Int64
+    let mimeType: String
+    let status: String
+}
+
+struct ExportOutputFileRecord: Codable, Equatable {
+    let role: String
+    let filename: String
+    let byteSize: Int64
+    let sha256: String
+}
+
+struct ExportManifest: Codable, Equatable {
+    let schemaVersion: Int
+    let exportEngine: String
+    let createdAt: String
+    let sourceDisplayName: String
+    let thread: ExportManifestThread
+    let filters: ExportManifestFilters
+    let exportedMessageCount: Int
+    let outputFiles: [ExportOutputFileRecord]
+    let attachments: [ExportAttachmentRecord]
+}
+
+struct ExportManifestThread: Codable, Equatable {
+    let chatID: Int64
+    let title: String
+    let identifier: String
+    let guid: String
+}
+
+struct ExportManifestFilters: Codable, Equatable {
+    let dateMode: String
+    let startDate: String?
+    let endDate: String?
+    let keyword: String?
+    let includeMedia: Bool
+}
+
+struct AttachmentCopyResult {
+    let records: [ExportAttachmentRecord]
+    let attachmentsDirectoryURL: URL?
+}
+
+/// Exports a selected conversation as a local package: an A4 PDF, diagnostic HTML,
+/// CSV rows, and a deterministic manifest JSON sidecar.
 final class ExportPDFService {
     /// Shared singleton instance of the export service.
     static let shared = ExportPDFService()
@@ -48,9 +113,8 @@ final class ExportPDFService {
 
     /// Exports a chat thread's message history to a PDF file at a user-specified destination URL.
     ///
-    /// This is the primary entry point for exporting. It coordinates sorting message payloads,
-    /// creating the destination directories, writing out the diagnostic HTML gate, and initiating
-    /// the offscreen PDF compilation.
+    /// Compatibility entry point for callers that only need the generated PDF path. The export
+    /// still writes the v1 package sidecars next to the PDF.
     ///
     /// - Parameters:
     ///   - outputURL: The desired filesystem URL where the compiled PDF should be written.
@@ -63,42 +127,26 @@ final class ExportPDFService {
                       thread: ChatThread,
                       messages: [MessageItem],
                       appState: AppState) async throws -> URL {
-        // Enforce the standard ".pdf" file extension for the output target URL
-        let destinationURL = outputURL.pathExtension.lowercased() == "pdf"
-            ? outputURL
-            : outputURL.appendingPathExtension("pdf")
-
-        // Ensure that the target parent directory exists; create it recursively if missing
-        let parentDirectory = destinationURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
-
-        // Sort messages chronologically (ascending order) to represent an accurate legal timeline
-        let orderedMessages = messages.sorted { $0.date < $1.date }
-        let context = appState.exportRenderContext(for: thread)
-        
-        // Assemble the complete document as a raw HTML string from data structures
-        let html = buildHTML(for: thread, messages: orderedMessages, context: context)
-        
-        // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
-        // To prevent un-trackable rendering losses and simplify layout troubleshooting, we write
-        // the un-rendered HTML directly to disk as 'Forensic_Export_Verification.html'.
-        // If a layout engine bugs out, this static gate serves as our verifiable truth of extraction content.
-        let diagnosticURL = parentDirectory.appendingPathComponent("Forensic_Export_Verification.html")
-        try html.write(to: diagnosticURL, atomically: true, encoding: .utf8)
-
-        // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
-        // Pass the static HTML into our offscreen rendering pipeline which compiles it into print-optimized PDF vectors.
-        try await renderHTMLAsync(html, to: destinationURL)
-        return destinationURL
+        let result = try await exportThreadPackage(to: outputURL, thread: thread, messages: messages, appState: appState)
+        return result.pdfURL
     }
 
-    /// Asynchronous alias of `exportThread`. Coordinates directory preparation, raw HTML serialization,
-    /// diagnostic dump execution, and offscreen WebKit PDF vector compilation.
+    /// Asynchronous alias of `exportThread`.
     @MainActor
     func exportThreadAsync(to outputURL: URL,
                            thread: ChatThread,
                            messages: [MessageItem],
                            appState: AppState) async throws -> URL {
+        let result = try await exportThreadPackage(to: outputURL, thread: thread, messages: messages, appState: appState)
+        return result.pdfURL
+    }
+
+    @MainActor
+    func exportThreadPackage(to outputURL: URL,
+                             thread: ChatThread,
+                             messages: [MessageItem],
+                             appState: AppState,
+                             createdAt: Date = Date()) async throws -> ExportPackageResult {
         let destinationURL = outputURL.pathExtension.lowercased() == "pdf"
             ? outputURL
             : outputURL.appendingPathExtension("pdf")
@@ -106,21 +154,70 @@ final class ExportPDFService {
         let parentDirectory = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
 
+        let baseName = destinationURL.deletingPathExtension().lastPathComponent
+        let htmlURL = parentDirectory.appendingPathComponent("\(baseName).render.html")
+        let csvURL = parentDirectory.appendingPathComponent("\(baseName).csv")
+        let manifestURL = parentDirectory.appendingPathComponent("\(baseName).manifest.json")
+        let requestedAttachmentsDirectoryURL = parentDirectory.appendingPathComponent("\(baseName)_attachments", isDirectory: true)
+
         let orderedMessages = messages.sorted { $0.date < $1.date }
         let context = appState.exportRenderContext(for: thread)
+        let filters = appState.exportFilterSnapshot()
         let html = buildHTML(for: thread, messages: orderedMessages, context: context)
 
-        // 1. SYNCHRONOUS DIAGNOSTIC HTML DUMP
-        let diagnosticURL = parentDirectory.appendingPathComponent("Forensic_Export_Verification.html")
-        try html.write(to: diagnosticURL, atomically: true, encoding: .utf8)
-
-        // 2. ASYNCHRONOUS WEBVIEW RENDERING TO VECTOR PDF
+        try html.write(to: htmlURL, atomically: true, encoding: .utf8)
         try await renderHTMLAsync(html, to: destinationURL)
-        return destinationURL
+
+        let attachmentCopyResult = try copyAvailableAttachments(
+            for: orderedMessages,
+            attachmentsDirectoryURL: requestedAttachmentsDirectoryURL,
+            includeMedia: filters.includeMedia
+        )
+        let csv = buildCSV(
+            for: thread,
+            messages: orderedMessages,
+            context: context,
+            attachmentRecords: attachmentCopyResult.records
+        )
+        try csv.write(to: csvURL, atomically: true, encoding: .utf8)
+
+        var filesForHashing: [(role: String, url: URL)] = [
+            ("pdf", destinationURL),
+            ("csv", csvURL),
+            ("diagnostic_html", htmlURL)
+        ]
+
+        for record in attachmentCopyResult.records where record.status == "copied" {
+            guard let copiedFilename = record.copiedFilename else { continue }
+            filesForHashing.append(("attachment", parentDirectory.appendingPathComponent(copiedFilename)))
+        }
+
+        let outputFiles = try buildOutputFileRecords(for: filesForHashing, relativeTo: parentDirectory)
+        let manifestData = try buildManifestData(
+            thread: thread,
+            messages: orderedMessages,
+            context: context,
+            filters: filters,
+            outputFiles: outputFiles,
+            attachments: attachmentCopyResult.records,
+            createdAt: createdAt
+        )
+        try manifestData.write(to: manifestURL, options: .atomic)
+
+        return ExportPackageResult(
+            packageDirectoryURL: parentDirectory,
+            pdfURL: destinationURL,
+            htmlURL: htmlURL,
+            csvURL: csvURL,
+            manifestURL: manifestURL,
+            attachmentsDirectoryURL: attachmentCopyResult.attachmentsDirectoryURL,
+            copiedAttachmentCount: attachmentCopyResult.records.filter { $0.status == "copied" }.count,
+            missingAttachmentCount: attachmentCopyResult.records.filter { $0.status != "copied" }.count
+        )
     }
 
-    /// Automatically generates a legally-structured default filename for exports,
-    /// encoding key forensic identifiers: `Participant_StartYearMonthDay_to_EndYearMonthDay.pdf`.
+    /// Automatically generates a structured default filename for exports,
+    /// encoding the participant label and message date span.
     func defaultFileName(for thread: ChatThread, messages: [MessageItem], appState: AppState) -> String {
         let context = appState.exportRenderContext(for: thread)
         let participants = participantSummary(for: thread, messages: messages, context: context)
@@ -138,8 +235,219 @@ final class ExportPDFService {
         return "\(prefix)_\(safeStart)_to_\(safeEnd).pdf"
     }
 
+    /// Identifies the app build that generated the export.
+    func exportEngineDescription(
+        version: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+        build: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    ) -> String {
+        let cleanVersion = nonEmptyVersionComponent(version)
+        let cleanBuild = nonEmptyVersionComponent(build)
+
+        switch (cleanVersion, cleanBuild) {
+        case let (version?, build?):
+            return "Blue Bubble Vault \(version) (Build \(build))"
+        case let (version?, nil):
+            return "Blue Bubble Vault \(version)"
+        case let (nil, build?):
+            return "Blue Bubble Vault (Build \(build))"
+        case (nil, nil):
+            return "Blue Bubble Vault"
+        }
+    }
+
+    func buildCSV(for thread: ChatThread,
+                  messages: [MessageItem],
+                  context: ExportRenderContext,
+                  attachmentRecords: [ExportAttachmentRecord]) -> String {
+        let recordsByMessage = Dictionary(grouping: attachmentRecords, by: \.messageID)
+        let header = [
+            "message_id",
+            "timestamp",
+            "direction",
+            "sender_id",
+            "resolved_sender_display_name",
+            "message_text",
+            "attachment_count",
+            "attachment_filenames",
+            "attachment_statuses",
+            "source_display_name",
+            "thread_identifier",
+            "thread_guid"
+        ]
+
+        let rows = messages.map { message -> [String] in
+            let records = recordsByMessage[message.messageID] ?? []
+            let direction = message.isFromMe ? "sent" : "received"
+            let senderDisplayName = resolveDisplayName(for: message, thread: thread, context: context)
+            let filenames = records.map(\.originalFilename).joined(separator: "; ")
+            let statuses = records.map(\.status).joined(separator: "; ")
+
+            return [
+                String(message.messageID),
+                Self.iso8601String(from: message.date),
+                direction,
+                message.senderID,
+                senderDisplayName,
+                message.text,
+                String(message.attachments.count),
+                filenames,
+                statuses,
+                context.sourceDisplayName,
+                thread.chatIdentifier,
+                thread.guid
+            ]
+        }
+
+        let allRows = [header] + rows
+        return allRows
+            .map { fields in fields.map(csvEscape).joined(separator: ",") }
+            .joined(separator: "\n") + "\n"
+    }
+
+    func csvEscape(_ value: String) -> String {
+        guard value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r") else {
+            return value
+        }
+
+        let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+        return "\"\(escaped)\""
+    }
+
+    func copyAvailableAttachments(for messages: [MessageItem],
+                                  attachmentsDirectoryURL: URL,
+                                  includeMedia: Bool,
+                                  fileManager: FileManager = .default) throws -> AttachmentCopyResult {
+        guard includeMedia else {
+            return AttachmentCopyResult(records: [], attachmentsDirectoryURL: nil)
+        }
+
+        var records: [ExportAttachmentRecord] = []
+        var createdAttachmentsDirectory = false
+
+        for message in messages {
+            for attachment in message.attachments {
+                let originalFilename = originalFilename(for: attachment)
+                let byteSize = attachmentByteSize(for: attachment, fileManager: fileManager)
+
+                guard let sourceURL = attachment.fileURL,
+                      fileManager.fileExists(atPath: sourceURL.path) else {
+                    records.append(ExportAttachmentRecord(
+                        messageID: message.messageID,
+                        attachmentID: attachment.attachmentID,
+                        originalFilename: originalFilename,
+                        copiedFilename: nil,
+                        byteSize: byteSize,
+                        mimeType: attachment.mimeType,
+                        status: "missing"
+                    ))
+                    continue
+                }
+
+                if !createdAttachmentsDirectory {
+                    try fileManager.createDirectory(at: attachmentsDirectoryURL, withIntermediateDirectories: true)
+                    createdAttachmentsDirectory = true
+                }
+
+                let copiedName = copiedAttachmentFilename(for: attachment, messageID: message.messageID)
+                let destinationURL = attachmentsDirectoryURL.appendingPathComponent(copiedName)
+                let relativeCopiedName = "\(attachmentsDirectoryURL.lastPathComponent)/\(copiedName)"
+
+                do {
+                    if fileManager.fileExists(atPath: destinationURL.path) {
+                        try fileManager.removeItem(at: destinationURL)
+                    }
+                    try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                    records.append(ExportAttachmentRecord(
+                        messageID: message.messageID,
+                        attachmentID: attachment.attachmentID,
+                        originalFilename: originalFilename,
+                        copiedFilename: relativeCopiedName,
+                        byteSize: byteSize,
+                        mimeType: attachment.mimeType,
+                        status: "copied"
+                    ))
+                } catch {
+                    records.append(ExportAttachmentRecord(
+                        messageID: message.messageID,
+                        attachmentID: attachment.attachmentID,
+                        originalFilename: originalFilename,
+                        copiedFilename: nil,
+                        byteSize: byteSize,
+                        mimeType: attachment.mimeType,
+                        status: "unavailable"
+                    ))
+                }
+            }
+        }
+
+        return AttachmentCopyResult(
+            records: records,
+            attachmentsDirectoryURL: createdAttachmentsDirectory ? attachmentsDirectoryURL : nil
+        )
+    }
+
+    func buildManifestData(thread: ChatThread,
+                           messages: [MessageItem],
+                           context: ExportRenderContext,
+                           filters: ExportFilterSnapshot,
+                           outputFiles: [ExportOutputFileRecord],
+                           attachments: [ExportAttachmentRecord],
+                           createdAt: Date) throws -> Data {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportEngine: exportEngineDescription(),
+            createdAt: Self.iso8601String(from: createdAt),
+            sourceDisplayName: context.sourceDisplayName,
+            thread: ExportManifestThread(
+                chatID: thread.chatID,
+                title: context.threadTitle,
+                identifier: thread.chatIdentifier,
+                guid: thread.guid
+            ),
+            filters: ExportManifestFilters(
+                dateMode: filters.dateMode,
+                startDate: filters.startDate.map { Self.iso8601String(from: $0) },
+                endDate: filters.endDate.map { Self.iso8601String(from: $0) },
+                keyword: filters.keyword,
+                includeMedia: filters.includeMedia
+            ),
+            exportedMessageCount: messages.count,
+            outputFiles: outputFiles.sorted { $0.filename < $1.filename },
+            attachments: attachments.sorted {
+                if $0.messageID == $1.messageID {
+                    return $0.attachmentID < $1.attachmentID
+                }
+                return $0.messageID < $1.messageID
+            }
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(manifest)
+    }
+
+    func buildOutputFileRecords(for files: [(role: String, url: URL)],
+                                relativeTo baseURL: URL) throws -> [ExportOutputFileRecord] {
+        try files.map { file in
+            let data = try Data(contentsOf: file.url)
+            let relativeFilename = relativePath(from: baseURL, to: file.url)
+            return ExportOutputFileRecord(
+                role: file.role,
+                filename: relativeFilename,
+                byteSize: Int64(data.count),
+                sha256: Self.sha256HexDigest(for: data)
+            )
+        }
+    }
+
+    static func sha256HexDigest(for data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     /// Assembles raw thread structures and message objects into a monolithic HTML string.
-    /// This includes writing the layout style block, the evidence manifest cover,
+    /// This includes writing the layout style block, the export summary cover,
     /// a participant list, and the itemized conversation stream.
     func buildHTML(for thread: ChatThread,
                    messages: [MessageItem],
@@ -148,11 +456,11 @@ final class ExportPDFService {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
-        // Build the Conversation Manifest key-value table rows
+        // Build the conversation summary key-value table rows
         let manifestRows: [String] = [
             ("Case ID", "[CASE-ID]"),
             ("Evidence Custodian", context.evidenceCustodian),
-            ("Extraction Engine", "Blue Bubble Vault"),
+            ("Extraction Engine", exportEngineDescription()),
             ("Host Target Hardware", context.hostName),
             ("Thread Profile", thread.chatIdentifier.isEmpty ? thread.guid : thread.chatIdentifier),
             ("Thread GUID", thread.guid.isEmpty ? "[unavailable]" : thread.guid),
@@ -199,7 +507,7 @@ final class ExportPDFService {
 
         let threadTitle = escapeHTML(context.threadTitle)
         let sourceLabel = escapeHTML(context.sourceDisplayName)
-        let legalNotice = escapeHTML("This export was generated directly from the local forensic archive layers and is intended for evidentiary review, chain-of-custody documentation, and legal discovery workflows.")
+        let legalNotice = escapeHTML("This export was generated locally from the selected message source. The PDF is accompanied by sidecar files for review, including CSV rows and a manifest JSON with file hashes where available.")
 
         // Output the final monolithic HTML template
         return """
@@ -431,22 +739,22 @@ final class ExportPDFService {
         <body>
           <div id="pagination-source">
             <section class="cover">
-              <div class="eyebrow">Forensic Evidence Export</div>
-              <h1>Conversation Manifest</h1>
-              <div class="subtitle">Prepared for legal review • Thread: \(threadTitle) • Source: \(sourceLabel)</div>
+              <div class="eyebrow">Local Message Export</div>
+              <h1>Conversation Export Summary</h1>
+              <div class="subtitle">Thread: \(threadTitle) • Source: \(sourceLabel)</div>
               <table class="manifest-table">
                 <tbody>
                   \(manifestRows.joined(separator: ""))
                 </tbody>
               </table>
               <div class="participants">
-                <strong>Unified Mapped Participants</strong>
+                <strong>Participants</strong>
                 <ul>
                   \(participantRows.joined(separator: ""))
                 </ul>
               </div>
               <div class="legal-block">
-                <strong>Compliance Notice:</strong><br>\(legalNotice)
+                <strong>Export Note:</strong><br>\(legalNotice)
               </div>
             </section>
             <section class="stream">
@@ -663,6 +971,59 @@ final class ExportPDFService {
         let invalidCharacters = CharacterSet(charactersIn: ":/\\?%*|\"<>\n\r\t")
         let filtered = text.unicodeScalars.filter { !invalidCharacters.contains($0) }
         return String(filtered).replacingOccurrences(of: " ", with: "_").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func originalFilename(for attachment: AttachmentItem) -> String {
+        let filename = URL(fileURLWithPath: attachment.filename).lastPathComponent
+        if !filename.isEmpty {
+            return filename
+        }
+        if !attachment.guid.isEmpty {
+            return attachment.guid
+        }
+        return "attachment-\(attachment.attachmentID)"
+    }
+
+    private func copiedAttachmentFilename(for attachment: AttachmentItem, messageID: Int64) -> String {
+        let sanitizedName = sanitizeFileNameComponent(originalFilename(for: attachment))
+        let suffix = sanitizedName.isEmpty ? "attachment" : sanitizedName
+        return "message-\(messageID)-attachment-\(attachment.attachmentID)-\(suffix)"
+    }
+
+    private func attachmentByteSize(for attachment: AttachmentItem, fileManager: FileManager) -> Int64 {
+        if attachment.totalBytes > 0 {
+            return attachment.totalBytes
+        }
+
+        guard let url = attachment.fileURL,
+              let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber else {
+            return 0
+        }
+        return size.int64Value
+    }
+
+    private func relativePath(from baseURL: URL, to fileURL: URL) -> String {
+        let basePath = baseURL.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(basePath + "/") else {
+            return fileURL.lastPathComponent
+        }
+        return String(filePath.dropFirst(basePath.count + 1))
+    }
+
+    static func iso8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    private func nonEmptyVersionComponent(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     /// Safely escapes specialized HTML entity tags, avoiding raw tag parsing errors inside WebKit.

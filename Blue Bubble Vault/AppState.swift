@@ -117,6 +117,17 @@ public final class AppState: ObservableObject {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
+    public static func startOfSelectedDay(for date: Date, calendar: Calendar = .current) -> Date {
+        calendar.startOfDay(for: date)
+    }
+
+    public static func inclusiveEndOfSelectedDay(for date: Date, calendar: Calendar = .current) -> Date {
+        guard let dayInterval = calendar.dateInterval(of: .day, for: date) else {
+            return date
+        }
+        return dayInterval.end.addingTimeInterval(-0.001)
+    }
+
     /// Checks the current FDA permission status, scans for active databases, and updates source lists.
     public func checkPermissionsAndScanSources() {
         if isRunningUnderXCTest {
@@ -292,6 +303,19 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
         resolvedNames: resolvedNames
     )
 }
+
+func exportFilterSnapshot() -> ExportFilterSnapshot {
+    let trimmedKeyword = keywordFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+    let isRange = dateFilterMode == .range
+
+    return ExportFilterSnapshot(
+        dateMode: dateFilterMode.rawValue,
+        startDate: isRange ? Self.startOfSelectedDay(for: startDate) : nil,
+        endDate: isRange ? Self.inclusiveEndOfSelectedDay(for: endDate) : nil,
+        keyword: trimmedKeyword.isEmpty ? nil : trimmedKeyword,
+        includeMedia: includeMedia
+    )
+}
     
     // MARK: - Private Implementations
     
@@ -351,8 +375,8 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
         
         self.isQuerying = true
         
-        let start = dateFilterMode == .range ? startDate : nil
-        let end = dateFilterMode == .range ? endDate : nil
+        let start = dateFilterMode == .range ? Self.startOfSelectedDay(for: startDate) : nil
+        let end = dateFilterMode == .range ? Self.inclusiveEndOfSelectedDay(for: endDate) : nil
         let key = keywordFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : keywordFilter
         let includeMediaToggle = includeMedia
         let threadID = thread.chatID
@@ -381,6 +405,14 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
                     if let end = end, msg.date > end { return false }
                     if let key = key, !msg.text.localizedCaseInsensitiveContains(key) { return false }
                     return true
+                }
+
+                if !includeMediaToggle {
+                    fetchedMessages = fetchedMessages.map { message in
+                        var messageWithoutAttachments = message
+                        messageWithoutAttachments.attachments = []
+                        return messageWithoutAttachments
+                    }
                 }
                 
                 let textBytes = Int64(fetchedMessages.count) * 200
@@ -490,7 +522,7 @@ func exportRenderContext(for thread: ChatThread) -> ExportRenderContext {
                 (false, "Received. I will process the payment today.", nil),
                 (true, "Great. Please confirm once accounting has the invoice reference.", nil),
                 (false, "They just asked whether the export manifest is included.", nil),
-                (true, "For MVP we have a cover manifest in the PDF. The deterministic sidecar manifest is next.", nil),
+                (true, "For MVP we now write a PDF, CSV, and deterministic manifest sidecar from the same filtered messages.", nil),
                 (false, "Makes sense. The cover page is enough for the walkthrough.", nil),
                 (true, "I also want CSV and JSON to use the same message ordering.", nil),
                 (false, "That will help reviewers compare outputs.", nil),

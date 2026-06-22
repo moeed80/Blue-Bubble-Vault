@@ -492,6 +492,10 @@ public final class DatabaseService {
         let meaningfulCharacters = letters + digits + separators + emoji
         guard Double(meaningfulCharacters) / Double(scalars.count) > 0.8 else { return false }
 
+        if scalars.count <= 2, digits > 0, emoji == 0 {
+            return false
+        }
+
         if digits > letters + emoji + separators {
             return false
         }
