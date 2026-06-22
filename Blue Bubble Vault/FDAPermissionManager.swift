@@ -8,10 +8,54 @@
 import Foundation
 import Cocoa
 
+public enum AppBundleLocationState: Equatable {
+    case applicationsFolder
+    case userApplicationsFolder
+    case translocated
+    case unstable
+}
+
 public final class FDAPermissionManager {
     public static let shared = FDAPermissionManager()
     
     private init() {}
+
+    public var appBundleLocationState: AppBundleLocationState {
+        Self.bundleLocationState(
+            for: Bundle.main.bundleURL,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        )
+    }
+
+    public var permissionPersistenceWarning: String? {
+        switch appBundleLocationState {
+        case .applicationsFolder, .userApplicationsFolder:
+            return nil
+        case .translocated:
+            return "Move Blue Bubble Vault to Applications, then open it from there. macOS may not keep privacy permissions for apps launched from a disk image."
+        case .unstable:
+            return "Move Blue Bubble Vault to Applications before granting access. macOS may not keep privacy permissions for apps run from a build or temporary folder."
+        }
+    }
+
+    public static func bundleLocationState(for bundleURL: URL, homeDirectory: URL) -> AppBundleLocationState {
+        let path = bundleURL.standardizedFileURL.path
+        let homePath = homeDirectory.standardizedFileURL.path
+
+        if path.contains("/AppTranslocation/") {
+            return .translocated
+        }
+
+        if path.hasPrefix("/Applications/") {
+            return .applicationsFolder
+        }
+
+        if path.hasPrefix("\(homePath)/Applications/") {
+            return .userApplicationsFolder
+        }
+
+        return .unstable
+    }
     
     /// Checks if Full Disk Access is currently granted.
     /// It attempts to read the `~/Library/Messages` folder. If access is blocked by macOS TCC,

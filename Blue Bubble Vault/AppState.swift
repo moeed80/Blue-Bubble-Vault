@@ -20,6 +20,7 @@ public final class AppState: ObservableObject {
     // Permission State
     @Published var hasFDA: Bool = false
     @Published var hasContactsPermission: Bool = false
+    @Published var contactsAuthorizationState: ContactsAuthorizationState = .notDetermined
     
     // Connection Sources
     @Published var databaseSources: [DatabaseSource] = []
@@ -80,7 +81,8 @@ public final class AppState: ObservableObject {
     
     init() {
         checkPermissionsAndScanSources()
-        // Removed automatic contact sync to defer until explicit user action
+        checkContactsPermission()
+        // Contact name resolution still waits for explicit user action.
         setupSimulatedData()
         checkAvailableSpace()
         
@@ -93,10 +95,9 @@ public final class AppState: ObservableObject {
         $isContactSyncEnabled.sink { [weak self] isEnabled in
             guard let self = self else { return }
             if isEnabled {
-                // When user enables the toggle, request contacts permission
                 self.requestContactsPermission()
             } else {
-                // When user disables the toggle, reset the sync state
+                self.contactResolutionRequestID = UUID()
                 self.isContactsSynced = false
             }
         }.store(in: &cancellables)
@@ -112,9 +113,36 @@ public final class AppState: ObservableObject {
     private var simulatedThreads: [ChatThread] = []
     private var simulatedMessages: [Int64: [MessageItem]] = [:]
     private var messageLoadRequestID = UUID()
+    private var contactResolutionRequestID = UUID()
+    private var pendingPermissionRefresh = false
         
     private var isRunningUnderXCTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    var contactSyncHelpText: String {
+        if isContactSyncEnabled {
+            if let locationWarning = FDAPermissionManager.shared.permissionPersistenceWarning {
+                return locationWarning
+            }
+            switch contactsAuthorizationState {
+            case .authorized:
+                return "Contacts sync is on. Matching names appear when found."
+            case .notDetermined:
+                return "macOS will ask for Contacts permission."
+            case .denied:
+                return "Contacts access is off in macOS Settings."
+            case .restricted:
+                return "Contacts access is restricted by macOS."
+            case .unknown:
+                return "Contacts permission status could not be read."
+            }
+        }
+        return "Match handles to contact names locally when enabled."
+    }
+
+    var shouldShowContactsSettingsButton: Bool {
+        isContactSyncEnabled && contactsAuthorizationState == .denied
     }
 
     public static func startOfSelectedDay(for date: Date, calendar: Calendar = .current) -> Date {
@@ -153,6 +181,35 @@ public final class AppState: ObservableObject {
         
         self.databaseSources = sources
     }
+
+    public func refreshPermissionsAndReloadSelectedSource() {
+        let previousSource = selectedSource
+
+        checkPermissionsAndScanSources()
+        checkContactsPermission()
+
+        if let previousSource,
+           let refreshedSource = databaseSources.first(where: { $0.path == previousSource.path && $0.type == previousSource.type }) {
+            selectedSource = refreshedSource
+        } else if selectedSource == nil, let firstSource = databaseSources.first {
+            selectedSource = firstSource
+        }
+
+        if isContactSyncEnabled {
+            requestContactsPermission(openSettingsIfDenied: false)
+        }
+    }
+
+    public func schedulePermissionRefreshIfNeeded(delay: TimeInterval = 0.8) {
+        guard !pendingPermissionRefresh else { return }
+
+        pendingPermissionRefresh = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.pendingPermissionRefresh = false
+            self.refreshPermissionsAndReloadSelectedSource()
+        }
+    }
     
     /// Requests System Settings redirection for FDA
     public func requestFDAPermission() {
@@ -161,26 +218,43 @@ public final class AppState: ObservableObject {
     
     /// Checks the native Contacts database permission status
     public func checkContactsPermission() {
-        self.hasContactsPermission = ContactsManager.shared.checkAuthorizationStatus()
+        let state = ContactsManager.shared.authorizationState()
+        self.contactsAuthorizationState = state
+        self.hasContactsPermission = state == .authorized
     }
     
     /// Prompts user to grant Contacts framework permission
-    public func requestContactsPermission() {
+    public func requestContactsPermission(openSettingsIfDenied: Bool = true) {
         ContactsManager.shared.requestAccess { [weak self] granted in
             DispatchQueue.main.async {
-                self?.hasContactsPermission = granted
-                if granted {
-                    self?.resolveNamesForThreads()
+                guard let self else { return }
+
+                self.checkContactsPermission()
+                if granted || self.hasContactsPermission {
+                    self.resolveNamesForThreads()
+                    return
+                }
+
+                self.isContactsSynced = false
+                if openSettingsIfDenied && self.contactsAuthorizationState == .denied {
+                    ContactsManager.shared.openContactsPrivacySettings()
                 }
             }
         }
     }
+
+    public func openContactsSettings() {
+        ContactsManager.shared.openContactsPrivacySettings()
+    }
     
     /// Manually triggers contact name resolution after user action.
     public func requestContactSync() {
-        guard hasContactsPermission else { return }
+        checkContactsPermission()
+        guard hasContactsPermission else {
+            isContactsSynced = false
+            return
+        }
         resolveNamesForThreads()
-        isContactsSynced = true
     }
     
     /// Refreshes disk size checks
@@ -232,12 +306,20 @@ public final class AppState: ObservableObject {
             }
         }
         
-        guard hasContactsPermission else {
+        guard isContactSyncEnabled, hasContactsPermission else {
             return
         }
         
-        let handles = chatThreads.map { $0.chatIdentifier }
-        var allHandles = Set(handles)
+        var allHandles = Set<String>()
+
+        for thread in chatThreads {
+            allHandles.insert(thread.chatIdentifier)
+
+            let participantHandles = thread.participantHandles
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            allHandles.formUnion(participantHandles)
+        }
         
         // Include senderIDs in active messages to resolve group chat names
         for msg in messages {
@@ -245,22 +327,32 @@ public final class AppState: ObservableObject {
                 allHandles.insert(msg.senderID)
             }
         }
+
+        allHandles = allHandles.filter { !$0.isEmpty }
         
         // Optimize: Only resolve handles we haven't already cached
-        let unresolvedHandles = allHandles.filter { self.resolvedNames[$0] == nil }
-        guard !unresolvedHandles.isEmpty else { return }
+        let unresolvedHandles = Set(allHandles.filter { self.resolvedNames[$0] == nil })
+        guard !unresolvedHandles.isEmpty else {
+            isContactsSynced = true
+            return
+        }
+
+        let requestID = UUID()
+        contactResolutionRequestID = requestID
         
         // Execute lookup asynchronously off the main thread
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
-            for handle in unresolvedHandles {
-                if let name = ContactsManager.shared.resolveName(for: handle) {
-                    // Publish single updates back to main thread incrementally
-                    DispatchQueue.main.async {
-                        self.resolvedNames[handle] = name
-                    }
+
+            let resolvedUpdates = ContactsManager.shared.resolveNames(for: unresolvedHandles)
+
+            DispatchQueue.main.async {
+                guard self.contactResolutionRequestID == requestID else { return }
+
+                for (handle, name) in resolvedUpdates {
+                    self.resolvedNames[handle] = name
                 }
+                self.isContactsSynced = true
             }
         }
     }

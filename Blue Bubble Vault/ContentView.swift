@@ -10,6 +10,7 @@ import AppKit
 import CoreGraphics
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var appState = AppState()
     @State private var showingExportSheet = false
     @State private var exportProgress: Double = 0.0
@@ -29,7 +30,12 @@ struct ContentView: View {
         .frame(minWidth: 960, minHeight: 640)
         .environmentObject(appState)
         .onAppear {
-            // Removed automatic contact permission request
+            appState.schedulePermissionRefreshIfNeeded()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                appState.schedulePermissionRefreshIfNeeded(delay: 0.4)
+            }
         }
         .sheet(isPresented: $showingExportSheet) {
             ExportProgressView(progress: exportProgress, stage: exportStage, isCompleted: exportProgress >= 1.0 && !exportFailed, isFailed: exportFailed, destinationURL: selectedExportURL) {
@@ -236,11 +242,18 @@ struct MainDashboardView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Warning caption explaining the permission requirement
-            Text("Enabling this will require system contact permissions to be granted.")
+            Text(appState.contactSyncHelpText)
                 .font(.caption2)
                 .foregroundColor(.secondary)
-                .lineLimit(2)
+                .lineLimit(3)
+
+            if appState.shouldShowContactsSettingsButton {
+                Button("Open Contacts Settings") {
+                    appState.openContactsSettings()
+                }
+                .buttonStyle(.link)
+                .font(.caption2)
+            }
         }
     }
     .toggleStyle(.switch)
@@ -402,7 +415,7 @@ struct MainDashboardView: View {
                             .padding(20)
                         }
                         .background(Color(NSColor.textBackgroundColor))
-                        .onChange(of: appState.messages.count) {
+                        .onChange(of: appState.messages.count) { _ in
                             if let lastMsg = appState.messages.last {
                                 proxy.scrollTo(lastMsg.id, anchor: .bottom)
                             }
@@ -666,12 +679,27 @@ struct FDAOnboardingView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 480)
             }
+
+            if let warning = FDAPermissionManager.shared.permissionPersistenceWarning {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(warning)
+                        .font(.callout)
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: 460)
+            }
             
             // Step-by-Step Instructions card
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "1.circle.fill").foregroundColor(.blue)
-                    Text("Click the **Open System Settings** button below.")
+                    Text("If needed, move the app to Applications, then click **Open System Settings** below.")
                 }
                 
                 HStack(alignment: .top, spacing: 10) {
@@ -692,13 +720,14 @@ struct FDAOnboardingView: View {
             HStack(spacing: 16) {
                 Button("Open System Settings") {
                     appState.requestFDAPermission()
+                    appState.schedulePermissionRefreshIfNeeded(delay: 1.0)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 
                 Button("Check Access Again") {
                     withAnimation {
-                        appState.checkPermissionsAndScanSources()
+                        appState.refreshPermissionsAndReloadSelectedSource()
                     }
                 }
                 .buttonStyle(.bordered)
