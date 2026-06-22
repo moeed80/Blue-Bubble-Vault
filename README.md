@@ -56,11 +56,12 @@ These are planned or aspirational features, but they are not complete in the cur
 
 The current export action creates:
 
-- An A4-sized PDF file for the selected thread and active filters.
-- A CSV file with one row per exported message.
-- A manifest JSON sidecar with stable metadata and SHA-256 hashes for generated output files.
-- A diagnostic HTML sidecar beside the PDF.
-- An attachments folder when media export is enabled and source attachment files are available.
+- A new export folder named after the selected export name.
+- An A4-sized PDF file inside that folder for the selected thread and active filters.
+- A CSV file inside that folder with one row per exported message.
+- A manifest JSON sidecar inside that folder with stable metadata and SHA-256 hashes for generated output files.
+- A diagnostic HTML sidecar inside that folder for PDF render verification.
+- A nested `attachments/` folder when media export is enabled and source attachment files are available.
 
 The diagnostic HTML is used to inspect the render source for the PDF. It is not yet a polished standalone archive format.
 

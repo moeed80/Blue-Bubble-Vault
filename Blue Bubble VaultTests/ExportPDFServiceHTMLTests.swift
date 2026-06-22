@@ -36,6 +36,29 @@ final class ExportPDFServiceHTMLTests: XCTestCase {
         XCTAssertEqual(description, "Blue Bubble Vault")
     }
 
+    func testDefaultFolderNameOmitsPDFExtension() {
+        let appState = AppState()
+        let messages = [
+            MessageItem(
+                messageID: 1,
+                text: "Confirmed.",
+                date: Date(timeIntervalSinceReferenceDate: 2_060),
+                isFromMe: true,
+                senderID: "me",
+                attachments: []
+            )
+        ]
+
+        let folderName = ExportPDFService.shared.defaultFolderName(
+            for: syntheticThread,
+            messages: messages,
+            appState: appState
+        )
+
+        XCTAssertFalse(folderName.localizedCaseInsensitiveContains(".pdf"))
+        XCTAssertFalse(folderName.isEmpty)
+    }
+
     func testCSVEscapingHandlesQuotesCommasAndNewlines() {
         let escaped = ExportPDFService.shared.csvEscape("Hello, \"world\"\nNext line")
 
@@ -121,7 +144,7 @@ final class ExportPDFServiceHTMLTests: XCTestCase {
                 messageID: 1,
                 attachmentID: 500,
                 originalFilename: "photo.jpg",
-                copiedFilename: "thread_attachments/message-1-attachment-500-photo.jpg",
+                copiedFilename: "attachments/message-1-attachment-500-photo.jpg",
                 byteSize: 4096,
                 mimeType: "image/jpeg",
                 status: "copied"
@@ -192,6 +215,52 @@ final class ExportPDFServiceHTMLTests: XCTestCase {
         XCTAssertEqual(result.records.count, 1)
         XCTAssertEqual(result.records.first?.originalFilename, "missing-photo.jpg")
         XCTAssertEqual(result.records.first?.status, "missing")
+    }
+
+    func testAvailableAttachmentCopiesIntoNestedAttachmentsFolder() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BlueBubbleVaultExportTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let sourceURL = temporaryDirectory.appendingPathComponent("source-photo.jpg")
+        try Data("synthetic image bytes".utf8).write(to: sourceURL)
+
+        let messages = [
+            MessageItem(
+                messageID: 1,
+                text: "Available synthetic attachment.",
+                date: Date(timeIntervalSinceReferenceDate: 2_000),
+                isFromMe: false,
+                senderID: "+15550192834",
+                attachments: [
+                    AttachmentItem(
+                        attachmentID: 500,
+                        guid: "available-guid",
+                        filename: sourceURL.path,
+                        mimeType: "image/jpeg",
+                        totalBytes: 0
+                    )
+                ]
+            )
+        ]
+        let packageDirectory = temporaryDirectory.appendingPathComponent("ExportPackage", isDirectory: true)
+        let attachmentsDirectory = packageDirectory.appendingPathComponent("attachments", isDirectory: true)
+
+        let result = try ExportPDFService.shared.copyAvailableAttachments(
+            for: messages,
+            attachmentsDirectoryURL: attachmentsDirectory,
+            includeMedia: true
+        )
+
+        XCTAssertEqual(result.attachmentsDirectoryURL?.lastPathComponent, "attachments")
+        XCTAssertEqual(result.records.first?.status, "copied")
+        XCTAssertEqual(result.records.first?.copiedFilename?.hasPrefix("attachments/"), true)
+
+        guard let copiedFilename = result.records.first?.copiedFilename else {
+            return XCTFail("Expected copied attachment filename.")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: packageDirectory.appendingPathComponent(copiedFilename).path))
     }
 
     func testBuildHTMLEscapesMessageContentAndUsesFakeRenderContext() {

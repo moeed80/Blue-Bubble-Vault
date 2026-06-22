@@ -38,7 +38,7 @@ struct ContentView: View {
         }
     }
     
-    // Presents a native macOS save panel so the user can choose a destination folder and filename.
+    // Presents a native macOS save panel so the user can name the export folder.
     private func selectExportDestination() {
         guard let thread = appState.selectedThread else {
             exportStage = "No conversation thread selected."
@@ -47,13 +47,13 @@ struct ContentView: View {
         }
 
         let panel = NSSavePanel()
-        panel.title = "Export Conversation Package"
-        panel.message = "Choose a PDF filename. CSV, manifest JSON, and diagnostic HTML sidecars will be saved alongside it."
+        panel.title = "Export Conversation"
+        panel.message = "Blue Bubble Vault will create a new folder containing the PDF, CSV, manifest, diagnostic HTML, and copied attachments."
         panel.canCreateDirectories = true
-        panel.nameFieldLabel = "PDF File"
-        panel.nameFieldStringValue = ExportPDFService.shared.defaultFileName(for: thread, messages: appState.messages, appState: appState)
-        panel.prompt = "Export Package"
-        panel.isExtensionHidden = false
+        panel.nameFieldLabel = "Folder Name"
+        panel.nameFieldStringValue = ExportPDFService.shared.defaultFolderName(for: thread, messages: appState.messages, appState: appState)
+        panel.prompt = "Create Export Folder"
+        panel.isExtensionHidden = true
 
         panel.begin { response in
             if response == .OK, let url = panel.url {

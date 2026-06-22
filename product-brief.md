@@ -38,7 +38,7 @@ Blue Bubble Vault is intended for privacy-conscious users, legal/archive workflo
 - PDF export through a local rendering pipeline.
 - A4-sized PDF page normalization.
 - HTML pagination logic that keeps message rows together before PDF generation.
-- Diagnostic HTML output beside the PDF for export verification.
+- Diagnostic HTML output inside the export folder for PDF verification.
 - CSV output using the same filtered message set as the PDF.
 - Manifest JSON sidecar with stable metadata and SHA-256 hashes for generated output files.
 - Optional attachment folder that copies available local attachment files and records missing/unavailable files as metadata.
@@ -131,7 +131,7 @@ Privacy-sensitive areas that require continued review:
 6. The user optionally applies a date range, keyword filter, and media inclusion setting.
 7. The bottom context area shows export readiness, estimated export size, available disk space, and the number of messages to export when filters are active.
 8. The user starts export.
-9. The app writes an export package beside the chosen PDF filename: PDF, CSV, manifest JSON, diagnostic HTML, and an attachments folder when available files are copied.
+9. The app creates a new export folder named after the chosen export name. The folder contains the PDF, CSV, manifest JSON, diagnostic HTML, and a nested attachments folder when available files are copied.
 
 ## 6. UI Layout Hierarchy
 
@@ -180,15 +180,16 @@ The current export path generates a local package:
 
 1. The selected thread and filtered messages are copied into an export render context.
 2. The app builds an HTML representation of the export.
-3. The app writes a diagnostic HTML file next to the final PDF.
-4. A hidden WebKit view loads the HTML.
-5. JavaScript paginates message rows into A4-sized page containers before PDF rendering.
-6. WebKit creates PDF data.
-7. The PDF is normalized to A4 pages.
-8. The final PDF is written to disk.
-9. Available attachment files are copied into an attachments folder when media export is enabled.
-10. A CSV is written with one row per exported message.
-11. A manifest JSON is written with package metadata, generated output file hashes, and attachment copy/missing status.
+3. The app creates a new export folder from the selected export name.
+4. The app writes a diagnostic HTML file inside the export folder.
+5. A hidden WebKit view loads the HTML.
+6. JavaScript paginates message rows into A4-sized page containers before PDF rendering.
+7. WebKit creates PDF data.
+8. The PDF is normalized to A4 pages.
+9. The final PDF is written inside the export folder.
+10. Available attachment files are copied into a nested `attachments/` folder when media export is enabled.
+11. A CSV is written inside the export folder with one row per exported message.
+12. A manifest JSON is written inside the export folder with package metadata, generated output file hashes, and attachment copy/missing status.
 
 Current strengths:
 

@@ -147,18 +147,14 @@ final class ExportPDFService {
                              messages: [MessageItem],
                              appState: AppState,
                              createdAt: Date = Date()) async throws -> ExportPackageResult {
-        let destinationURL = outputURL.pathExtension.lowercased() == "pdf"
-            ? outputURL
-            : outputURL.appendingPathExtension("pdf")
-
-        let parentDirectory = destinationURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
-
-        let baseName = destinationURL.deletingPathExtension().lastPathComponent
-        let htmlURL = parentDirectory.appendingPathComponent("\(baseName).render.html")
-        let csvURL = parentDirectory.appendingPathComponent("\(baseName).csv")
-        let manifestURL = parentDirectory.appendingPathComponent("\(baseName).manifest.json")
-        let requestedAttachmentsDirectoryURL = parentDirectory.appendingPathComponent("\(baseName)_attachments", isDirectory: true)
+        let requestedFolderURL = normalizedExportFolderURL(from: outputURL)
+        let packageDirectoryURL = try createPackageDirectory(at: requestedFolderURL)
+        let baseName = packageDirectoryURL.lastPathComponent
+        let pdfURL = packageDirectoryURL.appendingPathComponent("\(baseName).pdf")
+        let htmlURL = packageDirectoryURL.appendingPathComponent("\(baseName).render.html")
+        let csvURL = packageDirectoryURL.appendingPathComponent("\(baseName).csv")
+        let manifestURL = packageDirectoryURL.appendingPathComponent("\(baseName).manifest.json")
+        let requestedAttachmentsDirectoryURL = packageDirectoryURL.appendingPathComponent("attachments", isDirectory: true)
 
         let orderedMessages = messages.sorted { $0.date < $1.date }
         let context = appState.exportRenderContext(for: thread)
@@ -166,7 +162,7 @@ final class ExportPDFService {
         let html = buildHTML(for: thread, messages: orderedMessages, context: context)
 
         try html.write(to: htmlURL, atomically: true, encoding: .utf8)
-        try await renderHTMLAsync(html, to: destinationURL)
+        try await renderHTMLAsync(html, to: pdfURL)
 
         let attachmentCopyResult = try copyAvailableAttachments(
             for: orderedMessages,
@@ -182,17 +178,17 @@ final class ExportPDFService {
         try csv.write(to: csvURL, atomically: true, encoding: .utf8)
 
         var filesForHashing: [(role: String, url: URL)] = [
-            ("pdf", destinationURL),
+            ("pdf", pdfURL),
             ("csv", csvURL),
             ("diagnostic_html", htmlURL)
         ]
 
         for record in attachmentCopyResult.records where record.status == "copied" {
             guard let copiedFilename = record.copiedFilename else { continue }
-            filesForHashing.append(("attachment", parentDirectory.appendingPathComponent(copiedFilename)))
+            filesForHashing.append(("attachment", packageDirectoryURL.appendingPathComponent(copiedFilename)))
         }
 
-        let outputFiles = try buildOutputFileRecords(for: filesForHashing, relativeTo: parentDirectory)
+        let outputFiles = try buildOutputFileRecords(for: filesForHashing, relativeTo: packageDirectoryURL)
         let manifestData = try buildManifestData(
             thread: thread,
             messages: orderedMessages,
@@ -205,8 +201,8 @@ final class ExportPDFService {
         try manifestData.write(to: manifestURL, options: .atomic)
 
         return ExportPackageResult(
-            packageDirectoryURL: parentDirectory,
-            pdfURL: destinationURL,
+            packageDirectoryURL: packageDirectoryURL,
+            pdfURL: pdfURL,
             htmlURL: htmlURL,
             csvURL: csvURL,
             manifestURL: manifestURL,
@@ -233,6 +229,11 @@ final class ExportPDFService {
         let safeEnd = formatter.string(from: endDate)
         let prefix = safeThreadLabel.isEmpty ? "conversation" : safeThreadLabel
         return "\(prefix)_\(safeStart)_to_\(safeEnd).pdf"
+    }
+
+    func defaultFolderName(for thread: ChatThread, messages: [MessageItem], appState: AppState) -> String {
+        let fileName = defaultFileName(for: thread, messages: messages, appState: appState)
+        return (fileName as NSString).deletingPathExtension
     }
 
     /// Identifies the app build that generated the export.
@@ -971,6 +972,33 @@ final class ExportPDFService {
         let invalidCharacters = CharacterSet(charactersIn: ":/\\?%*|\"<>\n\r\t")
         let filtered = text.unicodeScalars.filter { !invalidCharacters.contains($0) }
         return String(filtered).replacingOccurrences(of: " ", with: "_").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedExportFolderURL(from selectedURL: URL) -> URL {
+        selectedURL.pathExtension.lowercased() == "pdf"
+            ? selectedURL.deletingPathExtension()
+            : selectedURL
+    }
+
+    private func createPackageDirectory(at requestedFolderURL: URL,
+                                        fileManager: FileManager = .default) throws -> URL {
+        let parentDirectory = requestedFolderURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+
+        let requestedName = requestedFolderURL.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folderName = requestedName.isEmpty
+            ? "conversation_export"
+            : requestedName
+
+        var candidate = parentDirectory.appendingPathComponent(folderName, isDirectory: true)
+        var suffix = 2
+        while fileManager.fileExists(atPath: candidate.path) {
+            candidate = parentDirectory.appendingPathComponent("\(folderName) \(suffix)", isDirectory: true)
+            suffix += 1
+        }
+
+        try fileManager.createDirectory(at: candidate, withIntermediateDirectories: false)
+        return candidate
     }
 
     private func originalFilename(for attachment: AttachmentItem) -> String {
