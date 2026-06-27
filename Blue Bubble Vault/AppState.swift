@@ -82,6 +82,7 @@ public final class AppState: ObservableObject {
     init() {
         checkPermissionsAndScanSources()
         checkContactsPermission()
+        restoreContactSyncPreference()
         // Contact name resolution still waits for explicit user action.
         setupSimulatedData()
         checkAvailableSpace()
@@ -92,8 +93,9 @@ public final class AppState: ObservableObject {
         }
         
         // Add onChange observer for contact sync toggle
-        $isContactSyncEnabled.sink { [weak self] isEnabled in
+        $isContactSyncEnabled.dropFirst().sink { [weak self] isEnabled in
             guard let self = self else { return }
+            Self.setContactSyncPreference(isEnabled)
             if isEnabled {
                 self.requestContactsPermission()
             } else {
@@ -115,6 +117,7 @@ public final class AppState: ObservableObject {
     private var messageLoadRequestID = UUID()
     private var contactResolutionRequestID = UUID()
     private var pendingPermissionRefresh = false
+    private static let contactSyncEnabledDefaultsKey = "BlueBubbleVault.contactSyncEnabled"
         
     private var isRunningUnderXCTest: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -143,6 +146,21 @@ public final class AppState: ObservableObject {
 
     var shouldShowContactsSettingsButton: Bool {
         isContactSyncEnabled && contactsAuthorizationState == .denied
+    }
+
+    static func restoredContactSyncEnabled(savedPreference: Bool, authorizationState: ContactsAuthorizationState) -> Bool {
+        savedPreference && authorizationState == .authorized
+    }
+
+    private static func setContactSyncPreference(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: contactSyncEnabledDefaultsKey)
+    }
+
+    private func restoreContactSyncPreference() {
+        isContactSyncEnabled = Self.restoredContactSyncEnabled(
+            savedPreference: UserDefaults.standard.bool(forKey: Self.contactSyncEnabledDefaultsKey),
+            authorizationState: contactsAuthorizationState
+        )
     }
 
     public static func startOfSelectedDay(for date: Date, calendar: Calendar = .current) -> Date {
